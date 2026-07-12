@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", async () => {
+// App initialization starts immediately on script evaluation
   const roomStatusBadge = document.getElementById("room-status-badge");
   const webrtcStatusBadge = document.getElementById("webrtc-status-badge");
   const partyRoomTitle = document.getElementById("party-room-title");
@@ -502,4 +502,3 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Trigger initial checks
   initializeTheater();
-});
