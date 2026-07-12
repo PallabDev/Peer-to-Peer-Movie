@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+sqlite/db.sqlite
+sqlite/*.sqlite*
+.env
+.git
+.gitignore
+.github
+Dockerfile
+compose.yaml
+docker-compose.yaml
+caddy-proxy/
+*.log

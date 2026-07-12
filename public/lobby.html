@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-neutral-950 text-neutral-100 selection:bg-rose-500 selection:text-white">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watch Together | Lobby</title>
+  <meta name="description" content="Welcome to the Watch Together Theater Lobby.">
+  <link rel="stylesheet" href="/css/output.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Outfit', sans-serif;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(244,63,94,0.06),rgba(255,255,255,0))] overflow-hidden">
+
+  <!-- Navigation Header -->
+  <header class="border-b border-neutral-900 bg-neutral-950/80 backdrop-blur-md z-40 flex-shrink-0">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex h-16 items-center justify-between">
+        
+        <!-- Logo -->
+        <div class="flex items-center space-x-3">
+          <div class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 text-white shadow-md shadow-rose-500/10">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+          </div>
+          <span class="font-bold text-lg text-white">Watch Together</span>
+        </div>
+
+        <!-- User Actions -->
+        <div class="flex items-center space-x-6">
+          <div class="flex items-center space-x-2">
+            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="nav-username" class="text-sm font-medium text-neutral-300">Loading user...</span>
+          </div>
+          <button id="logout-btn" class="text-sm font-medium text-rose-400 hover:text-rose-300 transition-colors">
+            Log Out
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-grow flex items-center justify-center p-4">
+    <div class="w-full max-w-[420px] bg-neutral-900/60 backdrop-blur-xl border border-neutral-800/80 px-8 py-10 shadow-2xl rounded-3xl sm:px-10 relative overflow-hidden">
+      <!-- Glow accent on top edge -->
+      <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-[1px] bg-gradient-to-r from-transparent via-rose-500/50 to-transparent"></div>
+
+      <div class="text-center mb-8">
+        <h2 class="text-2xl font-bold tracking-tight text-white bg-clip-text text-transparent bg-gradient-to-r from-neutral-100 to-neutral-400">
+          Theater Lobby
+        </h2>
+        <p class="mt-2 text-sm text-neutral-400">
+          Welcome back! Select an action to proceed.
+        </p>
+      </div>
+
+      <!-- Error Message Box -->
+      <div id="error-container" class="hidden mb-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-rose-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-rose-300">Action Blocked</h3>
+            <div id="error-message" class="mt-1 text-xs text-rose-400 leading-relaxed"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <!-- Enter Watch Theater Button -->
+        <a href="/app.html" class="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-500/20 hover:from-rose-600 hover:to-amber-600 transition active:scale-[0.98]">
+          <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.324-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+          </svg>
+          Enter Watch Theater
+        </a>
+
+        <!-- Admin Control Panel Link (Conditional) -->
+        <a id="admin-panel-link" href="/admin.html" class="hidden flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-800 hover:bg-neutral-750 px-4 py-3 text-sm font-semibold text-amber-400 hover:text-amber-300 transition border border-neutral-700 active:scale-[0.98]">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+          Admin Control Panel
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="py-6 text-center text-[10px] text-neutral-600 select-none">
+    Watch Together Private Movie Theater &copy; 2026.
+  </footer>
+
+  <!-- Scripts -->
+  <script src="/js/lobby.js"></script>
+</body>
+</html>

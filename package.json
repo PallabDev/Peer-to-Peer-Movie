@@ -1,0 +1,29 @@
+{
+  "name": "peer-to-peer-movie",
+  "version": "1.0.0",
+  "description": "Watch Together (Private P2P)",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "build:css": "npx @tailwindcss/cli -i ./public/css/input.css -o ./public/css/output.css",
+    "watch:css": "npx @tailwindcss/cli -i ./public/css/input.css -o ./public/css/output.css --watch",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.1.2",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.33.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "express-session": "^1.18.0",
+    "helmet": "^7.1.0",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0-beta.8",
+    "drizzle-kit": "^0.24.0"
+  }
+}
