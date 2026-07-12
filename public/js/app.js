@@ -115,7 +115,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     socketCreated = true;
     
     console.log("[SOCKET] Initializing socket connection...");
-    socket = io({ reconnection: false, transports: ["websocket"] });
+    socket = io({ reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000, transports: ["websocket"] });
 
     // Authenticated confirmation
     socket.on("authenticated", (data) => {
