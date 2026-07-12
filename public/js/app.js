@@ -377,6 +377,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  // Helper to optimize WebRTC video sender for low-bandwidth conditions
+  async function optimizeVideoSender(sender) {
+    if (!sender || !sender.track || sender.track.kind !== "video") return;
+    try {
+      const parameters = sender.getParameters();
+      if (!parameters.encodings) {
+        parameters.encodings = [{}];
+      }
+      // Restrict video bitrate to 350kbps (leaves enough overhead for audio and websocket traffic under a 500kbps limit)
+      parameters.encodings[0].maxBitrate = 350000;
+      // Downscale video resolution dynamically by 2.25 (e.g. 1080p -> 480p) to allow smooth 30fps playback at low bitrates
+      parameters.encodings[0].scaleResolutionDownBy = 2.25;
+      await sender.setParameters(parameters);
+      console.log("[WEBRTC] Optimized video sender parameters: maxBitrate=350kbps, scaleResolutionDownBy=1.5");
+    } catch (err) {
+      console.warn("[WEBRTC] Failed to set video sender parameters:", err);
+    }
+  }
+
   // WebRTC Peer Connection Core Logic
   function initPeerConnection() {
     if (peerConnection) return;
@@ -441,9 +460,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // If we have active screen share stream, attach it
     if (localScreenStream) {
-      localScreenStream.getTracks().forEach(track => {
+      localScreenStream.getTracks().forEach(async track => {
+        if (track.kind === "video") {
+          track.contentHint = "motion";
+        }
         const sender = peerConnection.addTrack(track, localScreenStream);
         screenSenders.push(sender);
+        
+        if (track.kind === "video") {
+          await optimizeVideoSender(sender);
+        }
       });
     }
   }
@@ -502,8 +528,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].startsWith(`a=fmtp:${opusPayloadType}`)) {
         if (!lines[i].includes("stereo=1")) {
-          lines[i] = lines[i] + ";stereo=1;sprop-stereo=1;maxaveragebitrate=510000;useinbandfec=1;maxplaybackrate=48000";
-          console.log("[WEBRTC] Successfully modified Opus SDP settings to high-fidelity stereo");
+          // Limit audio bitrate to 128kbps (still CD-quality stereo) to avoid saturating a 500kbps connection
+          lines[i] = lines[i] + ";stereo=1;sprop-stereo=1;maxaveragebitrate=128000;useinbandfec=1;maxplaybackrate=48000";
+          console.log("[WEBRTC] Successfully modified Opus SDP settings to optimized high-fidelity stereo (128kbps)");
         }
       }
     }
@@ -751,11 +778,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Screen Sharing functions
   async function startScreenShare() {
     try {
+      // Capture screen at a guaranteed minimum of 30fps
       localScreenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
+          frameRate: { min: 30, ideal: 30 }
         },
         audio: {
           echoCancellation: false,
@@ -764,6 +792,12 @@ document.addEventListener("DOMContentLoaded", async () => {
           suppressLocalAudioPlayback: false
         }
       });
+
+      // Enable motion-priority contentHint on the video track to prevent freezing/lagging during high-motion movie scenes
+      const videoTrack = localScreenStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.contentHint = "motion";
+      }
 
       // Render shared stream inside the main full-screen player area
       if (remoteVideo) {
@@ -791,10 +825,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       // Attach tracks to WebRTC
       if (peerConnection) {
-        localScreenStream.getTracks().forEach(track => {
+        for (const track of localScreenStream.getTracks()) {
+          if (track.kind === "video") {
+            track.contentHint = "motion";
+          }
           const sender = peerConnection.addTrack(track, localScreenStream);
           screenSenders.push(sender);
-        });
+          
+          if (track.kind === "video") {
+            await optimizeVideoSender(sender);
+          }
+        }
         // renegotiate
         await negotiate();
       }
