@@ -23,7 +23,7 @@ services:
       - "8189:8189/tcp" # WebRTC TCP ICE port (Fallback in case UDP is blocked)
     environment:
       # Tell MediaMTX to advertise your raw VPS public IP for WebRTC ICE candidates (essential for NAT traversal)
-      - MTX_WEBRTCICEHOSTS=${VPS_PUBLIC_IP}
+      - MTX_WEBRTCICEHOSTS=222.167.207.36
       # Enable WebRTC over TCP candidates
       - MTX_WEBRTCLOCALTCPADDRESS=:8189
     networks:
