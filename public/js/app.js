@@ -51,6 +51,9 @@
   let viewerRecoveryTimer = null;
   let lastPlaybackNudge = 0;
   let viewerRecoveryHandlersAttached = false;
+  let socketSetupStarted = false;
+  let joinedCurrentSocket = false;
+  const renderedChatMessageIds = new Set();
 
   const QUALITY_PROFILES = {
     "1080p": { width: 1920, height: 1080, frameRate: 30, maxBitrate: 4_000_000 },
@@ -138,6 +141,9 @@
 
   // 3. Socket.IO setups
   function setupWebSocket() {
+    if (socketSetupStarted) return;
+    socketSetupStarted = true;
+
     socket = io({
       reconnection: true,
       reconnectionAttempts: 10,
@@ -147,10 +153,17 @@
 
     socket.on("connect", () => {
       console.log("[SOCKET] Websocket connected. Joining watch party...");
+      joinedCurrentSocket = false;
       socket.emit("join-party", { partyId });
     });
 
     socket.on("user-joined", (data) => {
+      if (data.userId == currentUser.id) {
+        joinedCurrentSocket = true;
+        roomStatusBadge.textContent = "Connected";
+        roomStatusBadge.className = "text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full font-medium";
+      }
+
       showToast(`${data.email} joined the theater`, "success");
       activeViewerCount.textContent = `${data.count} participant${data.count > 1 ? "s" : ""}`;
     });
@@ -170,7 +183,7 @@
     });
 
     socket.on("chat-message", (data) => {
-      appendChatMessage(data.email, data.text, data.timestamp);
+      appendChatMessage(data);
     });
 
     socket.on("stream-started", () => {
@@ -201,16 +214,9 @@
 
     socket.on("disconnect", () => {
       console.warn("[SOCKET] Websocket disconnected.");
+      joinedCurrentSocket = false;
       roomStatusBadge.textContent = "Connecting";
       roomStatusBadge.className = "text-xs bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded-full font-medium";
-    });
-
-    // Notify connected status once user actually joins room
-    socket.on("user-joined", (data) => {
-      if (data.userId == currentUser.id) {
-        roomStatusBadge.textContent = "Connected";
-        roomStatusBadge.className = "text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full font-medium";
-      }
     });
   }
 
@@ -599,9 +605,10 @@
   chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();
-    if (!text || !socket) return;
+    if (!text || !socket || !joinedCurrentSocket) return;
 
-    socket.emit("chat-message", { text });
+    const messageId = `${currentUser.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    socket.emit("chat-message", { text, messageId });
     chatInput.value = "";
   });
 
@@ -627,7 +634,19 @@
     // Re-request members list via socket or allow Socket.IO status updates to repaint
   }
 
-  function appendChatMessage(sender, text, timestamp) {
+  function appendChatMessage(message) {
+    const sender = message.email || "";
+    const text = message.text || "";
+    const timestamp = message.timestamp || "";
+    const messageId = message.messageId || `${message.userId || sender}:${timestamp}:${text}`;
+
+    if (renderedChatMessageIds.has(messageId)) return;
+    renderedChatMessageIds.add(messageId);
+    if (renderedChatMessageIds.size > 200) {
+      const oldestMessageId = renderedChatMessageIds.values().next().value;
+      renderedChatMessageIds.delete(oldestMessageId);
+    }
+
     const cleanSender = sender.split("@")[0];
     const isMe = sender === currentUser.email;
 

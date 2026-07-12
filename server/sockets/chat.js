@@ -8,6 +8,9 @@ export const activeRoomMembers = new Map();
 // Map of socket.id -> { userId, email, role, partyId }
 const socketConnections = new Map();
 
+// Map of partyId -> { userId, quality, startedAt }
+const activeStreams = new Map();
+
 export function setupChatSocket(io) {
   io.on("connection", (socket) => {
     const session = socket.request.session;
@@ -94,6 +97,10 @@ export function setupChatSocket(io) {
         }
         socket.emit("room-members", activeUsersList);
 
+        if (activeStreams.has(partyId) && !isHost) {
+          socket.emit("stream-started", activeStreams.get(partyId));
+        }
+
       } catch (err) {
         console.error("[SOCKET] Error joining party room:", err);
         socket.emit("error", { message: "Failed to join party room." });
@@ -112,9 +119,11 @@ export function setupChatSocket(io) {
       if (!text) return;
 
       const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const messageId = data.messageId || `${socket.id}:${Date.now()}`;
 
       // Broadcast message to everyone in the party room
       io.to(conn.partyId).emit("chat-message", {
+        messageId,
         userId: conn.userId,
         email: conn.email,
         text,
@@ -126,16 +135,21 @@ export function setupChatSocket(io) {
       const conn = socketConnections.get(socket.id);
       if (!conn || !conn.partyId) return;
 
-      socket.to(conn.partyId).emit("stream-started", {
+      const streamState = {
         userId: conn.userId,
-        quality: data.quality || "auto"
-      });
+        quality: data.quality || "auto",
+        startedAt: Date.now()
+      };
+
+      activeStreams.set(conn.partyId, streamState);
+      socket.to(conn.partyId).emit("stream-started", streamState);
     });
 
     socket.on("stream-stopped", () => {
       const conn = socketConnections.get(socket.id);
       if (!conn || !conn.partyId) return;
 
+      activeStreams.delete(conn.partyId);
       socket.to(conn.partyId).emit("stream-stopped", {
         userId: conn.userId
       });
@@ -165,8 +179,18 @@ export function setupChatSocket(io) {
           // If no other tabs are open, completely remove them from the presence list
           if (!hasOtherConnections) {
             members.delete(userId);
+
+            const streamState = activeStreams.get(partyId);
+            if (streamState && String(streamState.userId) === String(userId)) {
+              activeStreams.delete(partyId);
+              socket.to(partyId).emit("stream-stopped", {
+                userId
+              });
+            }
+
             if (members.size === 0) {
               activeRoomMembers.delete(partyId);
+              activeStreams.delete(partyId);
             }
 
             console.log(`[SOCKET] ${email} left party room: ${partyId}. Active count: ${members.size}`);
