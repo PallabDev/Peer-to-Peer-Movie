@@ -50,7 +50,7 @@ services:
 
       # Route WHIP (WebRTC screen sharing ingestion) to MediaMTX WHIP API port
       caddy_1: watch.pallabdev.in
-      caddy_1.route: /whip/*
+      caddy_1.route: /live/*/whip
       caddy_1.route.reverse_proxy: mediamtx:8889
 
       # Route HLS (viewer stream) requests to MediaMTX HLS playback port

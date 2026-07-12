@@ -114,7 +114,7 @@ router.get("/:id", requireAuth, async (req, res) => {
         title: party.title,
         isHost,
         // Expose stream key only to the host (for WHIP ingestion)
-        whipUrl: isHost ? `/whip/${party.streamKey}` : null,
+        whipUrl: isHost ? `/live/${party.streamKey}/whip` : null,
         hlsUrl: `/live/${party.streamKey}/index.m3u8`
       }
     });
