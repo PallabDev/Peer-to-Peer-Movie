@@ -16,6 +16,7 @@
   const volumeUpIcon = document.getElementById("volume-up-icon");
   const volumeMuteIcon = document.getElementById("volume-mute-icon");
   const fullscreenBtn = document.getElementById("theater-fullscreen-btn");
+  const mobileFullscreenBtn = document.getElementById("mobile-fullscreen-btn");
   const activeViewerCount = document.getElementById("active-viewer-count");
 
   const membersList = document.getElementById("members-list");
@@ -423,7 +424,7 @@
   });
 
   // Fullscreen toggle
-  fullscreenBtn.addEventListener("click", () => {
+  const toggleFullscreen = () => {
     const container = document.getElementById("video-container");
     if (!document.fullscreenElement) {
       container.requestFullscreen().catch(err => {
@@ -432,7 +433,11 @@
     } else {
       document.exitFullscreen();
     }
-  });
+  };
+  fullscreenBtn.addEventListener("click", toggleFullscreen);
+  if (mobileFullscreenBtn) {
+    mobileFullscreenBtn.addEventListener("click", toggleFullscreen);
+  }
 
   // 7. Live Ephemeral Chat Submission
   chatForm.addEventListener("submit", (e) => {
