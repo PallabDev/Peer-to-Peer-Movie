@@ -1,3 +1,4 @@
+(() => {
 // App initialization starts immediately on script evaluation
   const roomStatusBadge = document.getElementById("room-status-badge");
   const webrtcStatusBadge = document.getElementById("webrtc-status-badge");
@@ -502,3 +503,4 @@
 
   // Trigger initial checks
   initializeTheater();
+})();
