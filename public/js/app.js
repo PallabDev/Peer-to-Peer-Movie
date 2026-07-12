@@ -129,7 +129,7 @@
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      transports: ["websocket"]
+      transports: ["polling", "websocket"]
     });
 
     socket.on("connect", () => {
@@ -178,7 +178,7 @@
 
     // Notify connected status once user actually joins room
     socket.on("user-joined", (data) => {
-      if (data.userId === currentUser.id) {
+      if (data.userId == currentUser.id) {
         roomStatusBadge.textContent = "Connected";
         roomStatusBadge.className = "text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full font-medium";
       }
@@ -450,7 +450,7 @@
         <div class="mt-1 max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-normal text-white ${
           isMe 
             ? 'bg-gradient-to-r from-rose-500 to-rose-600 rounded-tr-none' 
-            : 'bg-neutral-850 border border-neutral-800 rounded-tl-none'
+            : 'bg-neutral-900 border border-neutral-800 rounded-tl-none'
         }">
           ${escapeHtml(text)}
         </div>
