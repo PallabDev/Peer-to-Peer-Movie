@@ -13,6 +13,7 @@
   const hostStopBtn = document.getElementById("host-stop-share-btn");
   const shareLinkBtn = document.getElementById("share-link-btn");
   const muteBtn = document.getElementById("theater-mute-btn");
+  const videoContainer = document.getElementById("video-container");
   const volumeUpIcon = document.getElementById("volume-up-icon");
   const volumeMuteIcon = document.getElementById("volume-mute-icon");
   const fullscreenBtn = document.getElementById("theater-fullscreen-btn");
@@ -51,6 +52,8 @@
   let viewerRecoveryTimer = null;
   let lastPlaybackNudge = 0;
   let viewerRecoveryHandlersAttached = false;
+  let nativeHlsMetadataHandlerAttached = false;
+  let needsAudioUnlock = false;
   let socketSetupStarted = false;
   let joinedCurrentSocket = false;
   const renderedChatMessageIds = new Set();
@@ -282,9 +285,15 @@
       localStream.getTracks().forEach(track => {
         if (track.kind === "video") {
           track.contentHint = "motion"; // Optimize screen updates specifically for videos/movies
+        } else if (track.kind === "audio") {
+          track.contentHint = "music";
         }
         whipPeerConnection.addTrack(track, localStream);
       });
+
+      if (!localStream.getAudioTracks().length) {
+        showToast("No screen audio was shared. Select a tab/window with audio enabled.", "warning");
+      }
 
       // Force H.264 video codec preference to ensure HLS compatibility
       const videoTransceiver = whipPeerConnection.getTransceivers().find(t => 
@@ -414,6 +423,8 @@
   // 5. Viewers: Low-Latency HLS Playback using hls.js
   function startHlsPlayback() {
     stopHlsPlayback();
+    videoElement.muted = isMuted;
+    videoElement.volume = isMuted ? 0 : 1;
 
     const streamSrc = partyDetails.hlsUrl;
     const fullHlsUrl = window.location.origin + streamSrc;
@@ -422,11 +433,12 @@
     if (Hls.isSupported()) {
       hlsPlayer = new Hls({
         lowLatencyMode: true,
-        backBufferLength: 15,
-        maxBufferLength: 20,
-        maxMaxBufferLength: 30,
-        liveSyncDurationCount: 4,
-        liveMaxLatencyDurationCount: 10,
+        backBufferLength: 30,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 45,
+        liveSyncDurationCount: 5,
+        liveMaxLatencyDurationCount: 12,
+        maxLiveSyncPlaybackRate: 1.08,
         abrEwmaFastLive: 3,
         abrEwmaSlowLive: 9,
         fragLoadingMaxRetry: 10,
@@ -440,10 +452,15 @@
       hlsPlayer.loadSource(streamSrc);
       hlsPlayer.attachMedia(videoElement);
 
-      hlsPlayer.on(Hls.Events.MANIFEST_LOADED, () => {
+      hlsPlayer.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
         console.log("[HLS] Stream source is online!");
         videoPlaceholder.classList.add("hidden");
         videoElement.classList.remove("hidden");
+        const hasAudio = (data.audioTracks && data.audioTracks.length > 0) ||
+          (data.levels || []).some(level => level.audioCodec || level.attrs?.AUDIO);
+        if (!hasAudio) {
+          showToast("This stream does not include audio from the host.", "warning");
+        }
         nudgeViewerPlayback();
       });
 
@@ -479,11 +496,19 @@
     } else if (videoElement.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS support (Safari)
       videoElement.src = streamSrc;
-      videoElement.addEventListener("loadedmetadata", () => {
+      if (!nativeHlsMetadataHandlerAttached) {
+        videoElement.addEventListener("loadedmetadata", () => {
+          videoPlaceholder.classList.add("hidden");
+          videoElement.classList.remove("hidden");
+          nudgeViewerPlayback();
+        });
+        nativeHlsMetadataHandlerAttached = true;
+      }
+      videoElement.addEventListener("canplay", () => {
         videoPlaceholder.classList.add("hidden");
         videoElement.classList.remove("hidden");
         nudgeViewerPlayback();
-      });
+      }, { once: true });
     }
 
     attachViewerRecoveryHandlers();
@@ -501,6 +526,7 @@
     }
 
     videoElement.removeAttribute("src");
+    videoElement.srcObject = null;
     videoElement.load();
   }
 
@@ -529,8 +555,8 @@
       if (videoElement.paused && videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         nudgeViewerPlayback();
       }
-      if (hlsPlayer && Number.isFinite(hlsPlayer.latency) && hlsPlayer.latency > 15 && Number.isFinite(hlsPlayer.liveSyncPosition)) {
-        videoElement.currentTime = hlsPlayer.liveSyncPosition;
+      if (hlsPlayer && Number.isFinite(hlsPlayer.latency) && hlsPlayer.latency > 25) {
+        hlsPlayer.startLoad();
       }
     }, 2500);
   }
@@ -550,8 +576,23 @@
 
     videoElement.play().catch((err) => {
       console.warn("[HLS] Autoplay blocked or playback delayed:", err);
-      placeholderStatus.textContent = "Tap the movie screen once to start playback.";
+      needsAudioUnlock = true;
+      videoElement.muted = true;
+      videoElement.play().catch(() => {});
+      placeholderStatus.textContent = "Tap the movie screen once to enable audio.";
     });
+  }
+
+  function unlockViewerAudio() {
+    if (!partyDetails || partyDetails.isHost) return;
+
+    needsAudioUnlock = false;
+    isMuted = false;
+    videoElement.muted = false;
+    videoElement.volume = 1;
+    volumeMuteIcon.classList.add("hidden");
+    volumeUpIcon.classList.remove("hidden");
+    nudgeViewerPlayback();
   }
 
   // 6. Action Button Event Listeners
@@ -573,6 +614,7 @@
   muteBtn.addEventListener("click", () => {
     isMuted = !isMuted;
     videoElement.muted = isMuted;
+    videoElement.volume = isMuted ? 0 : 1;
 
     if (isMuted) {
       volumeUpIcon.classList.add("hidden");
@@ -600,6 +642,11 @@
   if (mobileFullscreenBtn) {
     mobileFullscreenBtn.addEventListener("click", toggleFullscreen);
   }
+  videoContainer.addEventListener("click", () => {
+    if (needsAudioUnlock) {
+      unlockViewerAudio();
+    }
+  });
 
   // 7. Live Ephemeral Chat Submission
   chatForm.addEventListener("submit", (e) => {
