@@ -8,11 +8,14 @@ async function seed() {
     const existingUsers = db.select().from(users).all();
     
     if (existingUsers.length === 0) {
-      console.log("No users found. Seeding initial admin user...");
-      const hashedPassword = await bcrypt.hash("adminpassword123", 10);
+      const adminEmail = "watch@pallabdev.in";
+      const adminPassword = "Watch12345";
+      
+      console.log(`No users found. Seeding initial admin user (${adminEmail})...`);
+      const hashedPassword = await bcrypt.hash(adminPassword, 10);
       
       db.insert(users).values({
-        email: "admin@example.com",
+        email: adminEmail,
         password: hashedPassword,
         role: "admin",
         hasAccess: true,
@@ -22,8 +25,8 @@ async function seed() {
       
       console.log("=========================================");
       console.log("Initial admin user created successfully!");
-      console.log("Email: admin@example.com");
-      console.log("Password: adminpassword123");
+      console.log(`Email: ${adminEmail}`);
+      console.log(`Password: ${adminPassword}`);
       console.log("=========================================");
     } else {
       console.log(`Database already has ${existingUsers.length} user(s). Seeding skipped.`);
