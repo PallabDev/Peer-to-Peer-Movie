@@ -323,7 +323,8 @@
     }
 
     const streamSrc = partyDetails.hlsUrl;
-    console.log(`[HLS] Testing stream path: ${streamSrc}`);
+    const fullHlsUrl = window.location.origin + streamSrc;
+    console.log(`[HLS] Playback URL: ${fullHlsUrl}`);
 
     if (Hls.isSupported()) {
       hlsPlayer = new Hls({

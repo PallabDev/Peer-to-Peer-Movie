@@ -19,9 +19,13 @@ services:
     ports:
       - "1935:1935" # RTMP port (just in case they decide to use OBS)
       - "8889:8889" # WebRTC WHIP/WHEP port (for browser capture ingestion)
+      - "8189:8189/udp" # WebRTC UDP ICE port (ESSENTIAL for ICE candidate connection!)
+      - "8189:8189/tcp" # WebRTC TCP ICE port (Fallback in case UDP is blocked)
     environment:
       # Tell MediaMTX to advertise your domain for WebRTC ICE candidates (essential for NAT traversal)
       - MTX_WEBRTCICEHOSTS=watch.pallabdev.in
+      # Enable WebRTC over TCP candidates
+      - MTX_WEBRTCLOCALTCPADDRESS=:8189
     networks:
       - default
       - caddy_net
