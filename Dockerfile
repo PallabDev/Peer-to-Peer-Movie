@@ -21,9 +21,6 @@ RUN npm ci
 # Copy the rest of the application source code
 COPY . .
 
-# Compile Tailwind CSS styles
-RUN npm run build:css
-
 # Prune devDependencies to keep the production build clean
 RUN npm prune --omit=dev
 

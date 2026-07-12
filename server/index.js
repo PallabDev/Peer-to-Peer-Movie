@@ -42,7 +42,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.tailwindcss.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         connectSrc: ["'self'", "ws:", "wss:", "stun:", "turn:", "https://fonts.googleapis.com"],
@@ -56,6 +56,16 @@ app.use(
 // Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware to strip trailing slashes from incoming URLs to prevent routing 404s
+app.use((req, res, next) => {
+  if (req.path.length > 1 && req.path.endsWith("/")) {
+    const cleanPath = req.path.slice(0, -1);
+    const query = req.url.substring(req.path.length);
+    return res.redirect(301, cleanPath + query);
+  }
+  next();
+});
 
 // Express Session Middleware configuration
 const sessionMiddleware = session({
@@ -80,25 +90,25 @@ io.engine.use(sessionMiddleware);
 app.use("/css", express.static(path.join(__dirname, "../public/css")));
 app.use("/js", express.static(path.join(__dirname, "../public/js")));
 
-// Secure page routing
-app.get("/lobby.html", requireAuth, (req, res) => {
+// Secure page routing (clean URL and .html extension aliases)
+app.get(["/lobby", "/lobby.html"], requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "../public/lobby.html"));
 });
 
-app.get("/app.html", requireAuth, (req, res) => {
+app.get(["/app", "/app.html"], requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "../public/app.html"));
 });
 
-app.get("/admin.html", requireAdmin, (req, res) => {
+app.get(["/admin", "/admin.html"], requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, "../public/admin.html"));
 });
 
-// Public pages
-app.get("/login.html", (req, res) => {
+// Public pages (clean URL and .html extension aliases)
+app.get(["/login", "/login.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "../public/login.html"));
 });
 
-app.get("/signup.html", (req, res) => {
+app.get(["/signup", "/signup.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "../public/signup.html"));
 });
 
