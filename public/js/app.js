@@ -47,6 +47,17 @@
 
   let isMuted = false;
   let connectionPollingInterval = null;
+  let hlsRestartTimer = null;
+  let viewerRecoveryTimer = null;
+  let lastPlaybackNudge = 0;
+  let viewerRecoveryHandlersAttached = false;
+
+  const QUALITY_PROFILES = {
+    "1080p": { width: 1920, height: 1080, frameRate: 30, maxBitrate: 4_000_000 },
+    "720p": { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_200_000 },
+    "480p": { width: 854, height: 480, frameRate: 24, maxBitrate: 1_000_000 },
+    auto: { width: 1280, height: 720, frameRate: 30, maxBitrate: 1_800_000 }
+  };
 
   // 1. Initial Authentication & Verification Flow
   async function initializeTheater() {
@@ -162,6 +173,22 @@
       appendChatMessage(data.email, data.text, data.timestamp);
     });
 
+    socket.on("stream-started", () => {
+      if (!partyDetails.isHost) {
+        showToast("The movie stream is live.", "success");
+        restartHlsPlayback(700);
+      }
+    });
+
+    socket.on("stream-stopped", () => {
+      if (!partyDetails.isHost) {
+        stopHlsPlayback();
+        videoElement.classList.add("hidden");
+        videoPlaceholder.classList.remove("hidden");
+        placeholderStatus.textContent = "The host stopped sharing. Waiting for the next stream...";
+      }
+    });
+
     socket.on("room-full", (data) => {
       alert(data.message);
       window.location.href = "/lobby.html";
@@ -208,17 +235,16 @@
   async function startWhipIngest() {
     try {
       const selectedQuality = qualitySelect.value;
-      const width = selectedQuality === "720p" ? 1280 : 1920;
-      const height = selectedQuality === "720p" ? 720 : 1080;
+      const profile = QUALITY_PROFILES[selectedQuality] || QUALITY_PROFILES.auto;
 
       showToast("Requesting screen capture permission...", "info");
       
       // Capture Chrome screen stream
       localStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: width },
-          height: { ideal: height },
-          frameRate: { ideal: 30 }
+          width: { ideal: profile.width },
+          height: { ideal: profile.height },
+          frameRate: { ideal: profile.frameRate, max: profile.frameRate }
         },
         audio: {
           echoCancellation: false,
@@ -300,7 +326,12 @@
         sdp: answerSdp
       }));
 
+      await tuneSenderBitrates(profile);
+
       showToast("Screen streaming published successfully!", "success");
+      if (socket && socket.connected) {
+        socket.emit("stream-started", { quality: selectedQuality });
+      }
       
       // Toggle button states
       hostStartBtn.classList.add("hidden");
@@ -322,6 +353,9 @@
   // Host: Stop Streaming & Cleanup
   async function stopWhipIngest() {
     cleanupWhip();
+    if (socket && socket.connected) {
+      socket.emit("stream-stopped");
+    }
     showToast("Screen sharing stopped.", "warning");
     hostStopBtn.classList.add("hidden");
     hostStartBtn.classList.remove("hidden");
@@ -343,12 +377,37 @@
     placeholderStatus.textContent = "Waiting for the host to start sharing their screen...";
   }
 
+  async function tuneSenderBitrates(profile) {
+    if (!whipPeerConnection) return;
+
+    const senders = whipPeerConnection.getSenders();
+    await Promise.all(senders.map(async (sender) => {
+      if (!sender.track) return;
+
+      const params = sender.getParameters();
+      params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+
+      if (sender.track.kind === "video") {
+        params.encodings[0].maxBitrate = profile.maxBitrate;
+        params.encodings[0].maxFramerate = profile.frameRate;
+        params.degradationPreference = "maintain-framerate";
+      }
+
+      if (sender.track.kind === "audio") {
+        params.encodings[0].maxBitrate = 128_000;
+      }
+
+      try {
+        await sender.setParameters(params);
+      } catch (err) {
+        console.warn("[WEBRTC] Could not tune sender bitrate:", err);
+      }
+    }));
+  }
+
   // 5. Viewers: Low-Latency HLS Playback using hls.js
   function startHlsPlayback() {
-    if (hlsPlayer) {
-      hlsPlayer.destroy();
-      hlsPlayer = null;
-    }
+    stopHlsPlayback();
 
     const streamSrc = partyDetails.hlsUrl;
     const fullHlsUrl = window.location.origin + streamSrc;
@@ -356,10 +415,20 @@
 
     if (Hls.isSupported()) {
       hlsPlayer = new Hls({
-        lowLatencyMode: true, // Enables low-latency buffering (2-4s)
-        backBufferLength: 5,
+        lowLatencyMode: true,
+        backBufferLength: 15,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 30,
+        liveSyncDurationCount: 4,
+        liveMaxLatencyDurationCount: 10,
+        abrEwmaFastLive: 3,
+        abrEwmaSlowLive: 9,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        fragLoadingMaxRetryTimeout: 8000,
         manifestLoadingMaxRetry: Infinity,
-        manifestLoadingRetryDelay: 2000
+        manifestLoadingRetryDelay: 1500,
+        manifestLoadingMaxRetryTimeout: 8000
       });
 
       hlsPlayer.loadSource(streamSrc);
@@ -369,7 +438,11 @@
         console.log("[HLS] Stream source is online!");
         videoPlaceholder.classList.add("hidden");
         videoElement.classList.remove("hidden");
-        videoElement.play().catch(e => console.warn("Autoplay blocked:", e));
+        nudgeViewerPlayback();
+      });
+
+      hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, () => {
+        nudgeViewerPlayback();
       });
 
       // Handle manifest loading errors (e.g. host hasn't started streaming yet)
@@ -378,6 +451,22 @@
           videoElement.classList.add("hidden");
           videoPlaceholder.classList.remove("hidden");
           placeholderStatus.textContent = "Theater is offline. Waiting for stream to go live...";
+          return;
+        }
+
+        if (!data.fatal) {
+          if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR || data.details === Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL) {
+            nudgeViewerPlayback();
+          }
+          return;
+        }
+
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          hlsPlayer.startLoad();
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hlsPlayer.recoverMediaError();
+        } else {
+          restartHlsPlayback(1500);
         }
       });
 
@@ -387,9 +476,76 @@
       videoElement.addEventListener("loadedmetadata", () => {
         videoPlaceholder.classList.add("hidden");
         videoElement.classList.remove("hidden");
-        videoElement.play();
+        nudgeViewerPlayback();
       });
     }
+
+    attachViewerRecoveryHandlers();
+  }
+
+  function stopHlsPlayback() {
+    clearTimeout(hlsRestartTimer);
+    hlsRestartTimer = null;
+    clearInterval(viewerRecoveryTimer);
+    viewerRecoveryTimer = null;
+
+    if (hlsPlayer) {
+      hlsPlayer.destroy();
+      hlsPlayer = null;
+    }
+
+    videoElement.removeAttribute("src");
+    videoElement.load();
+  }
+
+  function restartHlsPlayback(delay = 0) {
+    clearTimeout(hlsRestartTimer);
+    hlsRestartTimer = setTimeout(() => {
+      if (!partyDetails || partyDetails.isHost) return;
+      startHlsPlayback();
+    }, delay);
+  }
+
+  function attachViewerRecoveryHandlers() {
+    if (partyDetails.isHost) return;
+
+    if (!viewerRecoveryHandlersAttached) {
+      videoElement.addEventListener("waiting", nudgeViewerPlayback);
+      videoElement.addEventListener("stalled", nudgeViewerPlayback);
+      videoElement.addEventListener("pause", recoverFromUnexpectedPause);
+      viewerRecoveryHandlersAttached = true;
+    }
+
+    if (viewerRecoveryTimer) return;
+
+    viewerRecoveryTimer = setInterval(() => {
+      if (document.hidden || videoElement.classList.contains("hidden")) return;
+      if (videoElement.paused && videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        nudgeViewerPlayback();
+      }
+      if (hlsPlayer && Number.isFinite(hlsPlayer.latency) && hlsPlayer.latency > 15 && Number.isFinite(hlsPlayer.liveSyncPosition)) {
+        videoElement.currentTime = hlsPlayer.liveSyncPosition;
+      }
+    }, 2500);
+  }
+
+  function recoverFromUnexpectedPause() {
+    if (!videoElement.ended && videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      nudgeViewerPlayback();
+    }
+  }
+
+  function nudgeViewerPlayback() {
+    if (partyDetails && partyDetails.isHost) return;
+
+    const now = Date.now();
+    if (now - lastPlaybackNudge < 700) return;
+    lastPlaybackNudge = now;
+
+    videoElement.play().catch((err) => {
+      console.warn("[HLS] Autoplay blocked or playback delayed:", err);
+      placeholderStatus.textContent = "Tap the movie screen once to start playback.";
+    });
   }
 
   // 6. Action Button Event Listeners

@@ -122,6 +122,25 @@ export function setupChatSocket(io) {
       });
     });
 
+    socket.on("stream-started", (data = {}) => {
+      const conn = socketConnections.get(socket.id);
+      if (!conn || !conn.partyId) return;
+
+      socket.to(conn.partyId).emit("stream-started", {
+        userId: conn.userId,
+        quality: data.quality || "auto"
+      });
+    });
+
+    socket.on("stream-stopped", () => {
+      const conn = socketConnections.get(socket.id);
+      if (!conn || !conn.partyId) return;
+
+      socket.to(conn.partyId).emit("stream-stopped", {
+        userId: conn.userId
+      });
+    });
+
     // Handle Disconnections
     socket.on("disconnect", () => {
       console.log(`[SOCKET] User disconnected: ${email} (Socket: ${socket.id})`);
