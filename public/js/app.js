@@ -253,6 +253,26 @@
         whipPeerConnection.addTrack(track, localStream);
       });
 
+      // Force H.264 video codec preference to ensure HLS compatibility
+      const videoTransceiver = whipPeerConnection.getTransceivers().find(t => 
+        (t.receiver.track && t.receiver.track.kind === "video") || 
+        (t.sender.track && t.sender.track.kind === "video")
+      );
+      if (videoTransceiver && typeof RTCRtpReceiver.getCapabilities === "function") {
+        try {
+          const capabilities = RTCRtpReceiver.getCapabilities("video");
+          if (capabilities && capabilities.codecs) {
+            const h264Codecs = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === "video/h264");
+            const otherCodecs = capabilities.codecs.filter(c => c.mimeType.toLowerCase() !== "video/h264");
+            const sortedCodecs = [...h264Codecs, ...otherCodecs];
+            videoTransceiver.setCodecPreferences(sortedCodecs);
+            console.log("[WEBRTC] Prioritized H.264 video codec successfully.");
+          }
+        } catch (err) {
+          console.warn("[WEBRTC] Failed to set H.264 codec preference:", err);
+        }
+      }
+
       // Host: Create SDP offer
       const offer = await whipPeerConnection.createOffer();
       await whipPeerConnection.setLocalDescription(offer);
