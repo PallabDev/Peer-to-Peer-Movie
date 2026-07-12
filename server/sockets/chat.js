@@ -40,7 +40,7 @@ export function setupChatSocket(io) {
         }
 
         const party = partyList[0];
-        const isHost = userId === party.hostId;
+        const isHost = String(userId) === String(party.hostId);
 
         // Initialize room set if not exists
         if (!activeRoomMembers.has(partyId)) {
@@ -88,7 +88,7 @@ export function setupChatSocket(io) {
               userId: conn.userId,
               email: conn.email,
               role: conn.role,
-              isHost: conn.userId === party.hostId
+              isHost: String(conn.userId) === String(party.hostId)
             });
           }
         }

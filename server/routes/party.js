@@ -97,7 +97,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     }
 
     const party = partyList[0];
-    const isHost = req.session.userId === party.hostId;
+    const isHost = String(req.session.userId) === String(party.hostId);
 
     // Check Viewer Limit (Max 4 concurrent users in the room)
     const members = activeRoomMembers.get(partyId);
