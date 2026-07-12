@@ -1,32 +1,65 @@
 services:
-  app:
-    build: .
-    container_name: peer-to-peer-movie
+  db:
+    image: postgres:15-alpine
+    container_name: watch-db
     restart: unless-stopped
     environment:
-      - NODE_ENV=production
-      - PORT=5678
-      # Change this to a secure random string in production
-      - SESSION_SECRET=a_very_secure_random_session_secret_123456
-      - DUPLICATE_LOGIN_BEHAVIOR=disconnect
-    ports:
-      - "5678:5678"
+      - POSTGRES_DB=watch_together
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
     volumes:
-      # Persists the SQLite database across container restarts/rebuilds
-      - sqlite_data:/app/sqlite
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - default
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: watch-media
+    restart: unless-stopped
+    ports:
+      - "1935:1935" # RTMP port (just in case they decide to use OBS)
+      - "8889:8889" # WebRTC WHIP/WHEP port (for browser capture ingestion)
+    environment:
+      # Tell MediaMTX to advertise your domain for WebRTC ICE candidates (essential for NAT traversal)
+      - MTX_WEBRTCICEHOSTS=watch.pallabdev.in
     networks:
       - default
       - caddy_net
     labels:
-      # Tells caddy-docker-proxy to route watch.pallabdev.in to this service
+      # Route WHIP WebRTC ingestion (from Chrome screen capture)
+      caddy_0: watch.pallabdev.in
+      caddy_0.route: /whip/*
+      caddy_0.reverse_proxy: "{{upstreams 8889}}"
+
+      # Route HLS movie playback (to the guest browser player)
+      caddy_1: watch.pallabdev.in
+      caddy_1.route: /live/*
+      caddy_1.reverse_proxy: "{{upstreams 8888}}"
+
+  app:
+    build: .
+    container_name: watch-app
+    restart: unless-stopped
+    depends_on:
+      - db
+      - mediamtx
+    ports:
+      - "5678:5678"
+    environment:
+      - NODE_ENV=production
+      - PORT=5678
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/watch_together
+      - SESSION_SECRET=a_secure_session_secret_for_production_use_987654321
+    networks:
+      - default
+      - caddy_net
+    labels:
       caddy: watch.pallabdev.in
       caddy.reverse_proxy: "{{upstreams 5678}}"
 
 networks:
-  # The external network shared with the caddy-proxy container
   caddy_net:
     external: true
 
 volumes:
-  # Persistent volume for sqlite database
-  sqlite_data:
+  postgres_data:

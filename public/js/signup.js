@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const form = document.getElementById("login-form");
+  const form = document.getElementById("signup-form");
   const emailInput = document.getElementById("email");
   const passwordInput = document.getElementById("password");
   const submitBtn = document.getElementById("submit-btn");
@@ -11,14 +11,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const infoContainer = document.getElementById("info-container");
   const infoTitle = document.getElementById("info-title");
   const infoMessage = document.getElementById("info-message");
-
-  // Read URL query params
-  const params = new URLSearchParams(window.location.search);
-  const errorParam = params.get("error");
-
-  if (errorParam === "pending") {
-    showInfo("Access Pending", "Your account has been registered successfully. Please wait for an administrator to approve your access before logging in.");
-  }
 
   function showError(title, msg) {
     errorTitle.textContent = title;
@@ -47,11 +39,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    if (password.length < 6) {
+      showError("Password Length", "Password must be at least 6 characters.");
+      return;
+    }
+
     submitBtn.disabled = true;
-    submitBtn.textContent = "Signing In...";
+    submitBtn.textContent = "Submitting...";
 
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
@@ -60,15 +57,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Login request failed.");
+        throw new Error(data.error || "Registration failed.");
       }
 
-      // Successful login: redirect to the lobby
-      window.location.href = "/lobby.html";
+      showInfo("Request Received", data.message);
+      form.reset();
+      submitBtn.classList.add("hidden");
     } catch (err) {
-      showError("Login Failed", err.message);
+      showError("Registration Failed", err.message);
       submitBtn.disabled = false;
-      submitBtn.textContent = "Sign In";
+      submitBtn.textContent = "Submit Request";
     }
   });
 });

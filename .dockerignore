@@ -1,7 +1,5 @@
 node_modules
 npm-debug.log
-sqlite/db.sqlite
-sqlite/*.sqlite*
 .env
 .git
 .gitignore
@@ -9,5 +7,4 @@ sqlite/*.sqlite*
 Dockerfile
 compose.yaml
 docker-compose.yaml
-caddy-proxy/
 *.log

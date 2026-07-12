@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Watch Together | Sign In</title>
-  <meta name="description" content="Log in to Watch Together Theater.">
+  <title>Watch Together | Register</title>
+  <meta name="description" content="Request an account for Watch Together.">
   <link rel="stylesheet" href="/css/output.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,20 +18,19 @@
 <body class="h-full flex flex-col justify-center bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(244,63,94,0.06),rgba(255,255,255,0))]">
 
   <div class="sm:mx-auto sm:w-full sm:max-w-md px-6">
-    <!-- Logo Icon -->
     <div class="flex justify-center mb-6">
       <div class="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-rose-500 to-amber-500 text-white shadow-xl shadow-rose-500/20">
         <svg class="h-8 w-8 animate-pulse" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
         </svg>
       </div>
     </div>
     
     <h2 class="text-center text-3xl font-extrabold tracking-tight text-white">
-      Watch Together
+      Request Account
     </h2>
     <p class="mt-2 text-center text-sm text-neutral-400">
-      Private browser-based theater stream & chat
+      Registration requests require administrator approval
     </p>
   </div>
 
@@ -41,16 +40,16 @@
       <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-[1px] bg-gradient-to-r from-transparent via-rose-500/50 to-transparent"></div>
 
       <!-- Info/Alert Container -->
-      <div id="info-container" class="hidden mb-6 rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4">
+      <div id="info-container" class="hidden mb-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-4">
         <div class="flex">
           <div class="flex-shrink-0">
-            <svg class="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.53-1.516 2.53H3.72c-1.347 0-2.189-1.363-1.516-2.53L8.485 2.496zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+            <svg class="h-5 w-5 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4.13-5.69z" clip-rule="evenodd" />
             </svg>
           </div>
           <div class="ml-3">
-            <h3 id="info-title" class="text-sm font-medium text-amber-300">Approval Required</h3>
-            <div id="info-message" class="mt-1 text-xs text-amber-400 leading-relaxed"></div>
+            <h3 id="info-title" class="text-sm font-medium text-emerald-300">Request Submitted</h3>
+            <div id="info-message" class="mt-1 text-xs text-emerald-400 leading-relaxed"></div>
           </div>
         </div>
       </div>
@@ -64,13 +63,13 @@
             </svg>
           </div>
           <div class="ml-3">
-            <h3 id="error-title" class="text-sm font-medium text-rose-300">Login Failed</h3>
+            <h3 id="error-title" class="text-sm font-medium text-rose-300">Registration Failed</h3>
             <div id="error-message" class="mt-1 text-xs text-rose-400 leading-relaxed"></div>
           </div>
         </div>
       </div>
 
-      <form id="login-form" class="space-y-6">
+      <form id="signup-form" class="space-y-6">
         <div>
           <label for="email" class="block text-sm font-medium text-neutral-300">Email Address</label>
           <div class="mt-2">
@@ -82,7 +81,7 @@
         <div>
           <label for="password" class="block text-sm font-medium text-neutral-300">Password</label>
           <div class="mt-2">
-            <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••"
+            <input id="password" name="password" type="password" required autocomplete="new-password" placeholder="••••••••"
               class="block w-full rounded-2xl border-0 bg-neutral-850 py-3 px-4 text-white shadow-sm ring-1 ring-inset ring-neutral-800 placeholder:text-neutral-500 focus:ring-2 focus:ring-inset focus:ring-rose-500 sm:text-sm transition">
           </div>
         </div>
@@ -90,18 +89,18 @@
         <div>
           <button id="submit-btn" type="submit"
             class="flex w-full justify-center rounded-2xl bg-gradient-to-r from-rose-500 to-amber-500 py-3 px-4 text-sm font-bold text-white shadow-lg shadow-rose-500/20 hover:from-rose-600 hover:to-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 transition active:scale-[0.98]">
-            Sign In
+            Submit Request
           </button>
         </div>
       </form>
 
       <p class="mt-6 text-center text-xs text-neutral-400">
-        New here?
-        <a href="/signup.html" class="font-semibold text-rose-400 hover:text-rose-300 transition">Request an account</a>
+        Already have an account?
+        <a href="/login.html" class="font-semibold text-rose-400 hover:text-rose-300 transition">Sign in here</a>
       </p>
     </div>
   </div>
 
-  <script src="/js/login.js"></script>
+  <script src="/js/signup.js"></script>
 </body>
 </html>

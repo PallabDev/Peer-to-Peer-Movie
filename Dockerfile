@@ -3,7 +3,7 @@
 # ==========================================
 FROM node:20-slim AS builder
 
-# Install build dependencies required for compiling native addons (bcrypt, better-sqlite3)
+# Install build dependencies required for compiling native addons (like bcrypt)
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
@@ -15,7 +15,7 @@ WORKDIR /app
 # Copy package management files
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies needed for building CSS)
+# Install all dependencies (including devDependencies needed for compiling CSS)
 RUN npm ci
 
 # Copy the rest of the application source code
@@ -35,15 +35,11 @@ FROM node:20-slim
 WORKDIR /app
 
 # Copy built application and production dependencies from builder stage
-# Ensure files are owned by the node user for security
 COPY --from=builder --chown=node:node /app /app
-
-# Create sqlite directory and ensure proper permissions
-RUN mkdir -p /app/sqlite && chown -R node:node /app/sqlite
 
 # Set runtime environment variables
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5678
 
 # Use the non-root node user provided by the base image
 USER node

@@ -1,788 +1,221 @@
 document.addEventListener("DOMContentLoaded", async () => {
-  // DOM Elements
-  const navUsername = document.getElementById("nav-username");
-  const adminPanelLink = document.getElementById("admin-panel-link");
-  const logoutBtn = document.getElementById("logout-btn");
-  
-  const videoContainer = document.getElementById("video-container");
-  const remoteVideo = document.getElementById("remote-video");
-  const localVideo = document.getElementById("local-video");
-  const localPreviewContainer = document.getElementById("local-preview-container");
-  const videoPlaceholder = document.getElementById("video-placeholder");
-  const placeholderStatus = document.getElementById("placeholder-status");
-  const talkingIndicator = document.getElementById("talking-indicator");
-  const talkingPeerName = document.getElementById("talking-peer-name");
-
-  const shareScreenBtn = document.getElementById("share-screen-btn");
-  const stopShareBtn = document.getElementById("stop-share-btn");
-  const shareLinkBtn = document.getElementById("share-link-btn");
-  const muteAudioBtn = document.getElementById("mute-audio-btn");
-  const audioIconUnmuted = document.getElementById("audio-icon-unmuted");
-  const audioIconMuted = document.getElementById("audio-icon-muted");
-  const pipBtn = document.getElementById("pip-btn");
-  const fullscreenBtn = document.getElementById("fullscreen-btn");
-  const destroyRoomBtn = document.getElementById("destroy-room-btn");
   const roomStatusBadge = document.getElementById("room-status-badge");
   const webrtcStatusBadge = document.getElementById("webrtc-status-badge");
-  const peerPresenceDot = document.getElementById("peer-presence-dot");
-  const peerUsernameDisplay = document.getElementById("peer-username-display");
-  const activeSharingBox = document.getElementById("active-sharing-box");
-  const activeSharingMsg = document.getElementById("active-sharing-msg");
+  const partyRoomTitle = document.getElementById("party-room-title");
+  
+  const videoElement = document.getElementById("theater-video");
+  const videoPlaceholder = document.getElementById("video-placeholder");
+  const placeholderStatus = document.getElementById("placeholder-status");
 
+  const qualitySelect = document.getElementById("quality-select");
+  const hostStartBtn = document.getElementById("host-start-share-btn");
+  const hostStopBtn = document.getElementById("host-stop-share-btn");
+  const shareLinkBtn = document.getElementById("share-link-btn");
+  const muteBtn = document.getElementById("theater-mute-btn");
+  const volumeUpIcon = document.getElementById("volume-up-icon");
+  const volumeMuteIcon = document.getElementById("volume-mute-icon");
+  const fullscreenBtn = document.getElementById("theater-fullscreen-btn");
+  const activeViewerCount = document.getElementById("active-viewer-count");
+
+  const membersList = document.getElementById("members-list");
   const chatMessages = document.getElementById("chat-messages");
   const chatForm = document.getElementById("chat-form");
   const chatInput = document.getElementById("chat-input");
-  const typingIndicator = document.getElementById("typing-indicator");
-  const typingUsername = document.getElementById("typing-username");
-  const toastContainer = document.getElementById("toast-container");
+
+  const guestOverlay = document.getElementById("guest-overlay");
+  const guestLoginForm = document.getElementById("guest-login-form");
+  const guestNameInput = document.getElementById("guest-name");
 
   // State Variables
-  let socket = null;
-  let currentUser = null;
-  let peerEmail = null;
-  let peerPresenceState = "Offline"; // Online, Offline, Sharing Screen, Talking, Idle
-  
-  let localScreenStream = null;
-  let peerConnection = null;
-  let screenSenders = []; // WebRTC senders for screen share (video + audio)
-  const remoteCandidatesQueue = []; // Queue for buffering remote ICE candidates before remoteDescription is set
-  let isMutedRemoteAudio = false;
-  let isTyping = false;
-  let typingTimeout = null;
-  let idleTimeout = null;
+  const params = new URLSearchParams(window.location.search);
+  const partyId = params.get("party");
 
-  // WebRTC configurations
-  const configuration = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
-  };
-
-  // Map to manage dynamic audio elements per remote track ID to avoid conflicts
-  const remoteAudioElements = new Map(); // trackId -> HTMLAudioElement
-
-  let socketCreated = false;
-
-  // Initialize profile check
-  try {
-    const res = await fetch("/api/auth/me");
-    if (!res.ok) {
-      window.location.href = "/login.html?info=Session+expired";
-      return;
-    }
-    const data = await res.json();
-    currentUser = data.user;
-    navUsername.textContent = currentUser.email;
-    
-    if (currentUser.role === "admin") {
-      adminPanelLink.classList.remove("hidden");
-      destroyRoomBtn.classList.remove("hidden");
-    }
-    
-    if (currentUser.isGuest) {
-      console.log("[THEATER] User is guest, hiding host-only control buttons");
-      if (shareScreenBtn) shareScreenBtn.classList.add("hidden");
-      if (stopShareBtn) stopShareBtn.classList.add("hidden");
-      if (shareLinkBtn) shareLinkBtn.classList.add("hidden");
-      if (muteAudioBtn) muteAudioBtn.classList.add("hidden");
-      if (localPreviewContainer) localPreviewContainer.classList.add("hidden");
-    }
-    
-    // Guests skip lobby - go straight to guest flow
-    if (currentUser.isGuest) {
-      document.getElementById("guest-overlay").classList.remove("hidden");
-      if (currentUser.isGuestRequestPending) {
-        showGuestStep("input");
-        startSocketSignaling();
-      } else {
-        document.getElementById("guest-overlay").classList.add("hidden");
-        startSocketSignaling();
-        setupEventListeners();
-      }
-    } else {
-      // Regular user: enter room instantly
-      startSocketSignaling();
-      setupEventListeners();
-    }
-  } catch (err) {
-    console.error("Profile check failed:", err);
-    window.location.href = "/login.html";
+  if (!partyId) {
+    window.location.href = "/lobby.html";
+    return;
   }
 
-  // Socket.IO signaling setups
-  function startSocketSignaling() {
-    if (socketCreated) return;
-    socketCreated = true;
-    
-    console.log("[SOCKET] Initializing socket connection...");
-    socket = io({ reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000, transports: ["websocket"] });
+  let socket = null;
+  let currentUser = null;
+  let partyDetails = null;
+  
+  let localStream = null; // Host screen stream
+  let whipPeerConnection = null; // Host WHIP WebRTC connection
+  let hlsPlayer = null; // Viewer HLS player instance
 
-    // Authenticated confirmation
-    socket.on("authenticated", (data) => {
-      console.log("[SOCKET] Authenticated event received:", data);
-      roomStatusBadge.textContent = "Connected";
-      roomStatusBadge.className = "text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full font-medium";
-      showToast(`Joined room as ${data.email}`, "success");
-      socket.emit("user:online");
-      updatePresence("Online");
-    });
+  let isMuted = false;
+  let connectionPollingInterval = null;
 
-    // Handle authentication error
-    socket.on("auth_error", (data) => {
-      console.error("[SOCKET] auth_error event received:", data);
-      socket.removeAllListeners();
-      socket.disconnect();
-      console.log("[LOBBY REDIRECT] Redirecting to login.html due to auth_error");
-      window.location.href = `/login.html?error=${encodeURIComponent(data.message)}`;
-    });
-
-    // Handle server error
-    socket.on("server_error", (data) => {
-      console.error("[SOCKET] server_error event received:", data);
-      showToast(data.message, "error");
-    });
-
-    // Handle force logout (duplicate login)
-    socket.on("force_logout", (data) => {
-      console.warn("[SOCKET] force_logout event received:", data);
-      socket.removeAllListeners();
-      socket.disconnect();
-      console.log("[LOBBY REDIRECT] Redirecting to login.html due to force_logout");
-      window.location.href = `/login.html?error=${encodeURIComponent(data.message)}`;
-    });
-
-    // Handle rate limit
-    socket.on("rate_limit", (data) => {
-      console.error("[SOCKET] rate_limit event received:", data);
-      showToast(data.message, "error");
-      socket.removeAllListeners();
-      socket.disconnect();
-      console.log("[LOBBY REDIRECT] Redirecting to lobby.html due to rate_limit");
-      setTimeout(() => {
-        window.location.href = `/lobby.html?error=${encodeURIComponent(data.message)}`;
-      }, 1500);
-    });
-
-    // Handle Room Full
-    socket.on("room_full", (data) => {
-      console.error("[SOCKET] room_full event received:", data);
-      showToast(data.message, "error");
-      placeholderStatus.textContent = "Room is full. Exactly two users allowed.";
-      roomStatusBadge.textContent = "Room Full";
-      roomStatusBadge.className = "text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-medium";
-      
-      socket.removeAllListeners();
-      socket.disconnect();
-      console.log("[LOBBY REDIRECT] Redirecting to lobby/login due to room_full");
-      setTimeout(() => {
-        window.location.href = currentUser.isGuest ? "/login.html?error=room_full" : "/lobby.html?error=room_full";
-      }, 1500);
-    });
-
-    // Handle room destroyed by host
-    socket.on("room:destroyed", (data) => {
-      console.warn("[SOCKET] room:destroyed event received:", data);
-      showToast(data.message || "Room has been destroyed by host", "warning");
-      closePeerConnection();
-      peerEmail = null;
-      updatePeerPresence("Offline");
-      placeholderStatus.textContent = "Room was destroyed. Redirecting...";
-      roomStatusBadge.textContent = "Disconnected";
-      roomStatusBadge.className = "text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-medium";
-      
-      socket.removeAllListeners();
-      socket.disconnect();
-      console.log("[LOBBY REDIRECT] Redirecting to lobby/login due to room:destroyed");
-      setTimeout(() => {
-        window.location.href = currentUser.isGuest ? "/login.html" : "/lobby.html";
-      }, 2000);
-    });
-
-    // Peer Joined Room
-    socket.on("peer:join", async (data) => {
-      peerEmail = data.email;
-      showToast(`${peerEmail} joined the room`, "info");
-      updatePeerPresence("Online");
-      
-      // Initialize Peer Connection (we are the polite peer or let the offering happen)
-      initPeerConnection();
-      
-      // Notify them we are online too
-      socket.emit("user:online");
-
-      // If we are the host (admin), initiate the WebRTC SDP offer
-      if (currentUser && currentUser.role === "admin") {
-        console.log("[WEBRTC] Host sending initial negotiation offer to the new peer");
-        await negotiate();
+  // 1. Initial Authentication & Verification Flow
+  async function initializeTheater() {
+    try {
+      const res = await fetch("/api/auth/me");
+      if (!res.ok) {
+        // Show Anonymous Guest Name Prompt if not logged in
+        guestOverlay.classList.remove("hidden");
+        return;
       }
-    });
-
-    // Peer Left Room
-    socket.on("peer:left", (data) => {
-      showToast(`${data.email} left the room`, "warning");
-      updatePeerPresence("Offline");
-      closePeerConnection();
-      peerEmail = null;
-    });
-
-    // WebRTC signaling forwards
-    socket.on("offer", async (data) => {
-      try {
-        if (!peerConnection) initPeerConnection();
-        // Modify remote description SDP to prefer high-fidelity audio
-        const highFidRemoteOffer = new RTCSessionDescription({
-          type: data.sdp.type || "offer",
-          sdp: preferHighFidelityAudio(data.sdp.sdp || data.sdp)
-        });
-        await peerConnection.setRemoteDescription(highFidRemoteOffer);
-        
-        // Process any remote ICE candidates that arrived before the remote offer was set
-        await processQueuedCandidates();
-        
-        const answer = await peerConnection.createAnswer();
-        // Modify local answer SDP to prefer high-fidelity audio
-        const highFidLocalAnswer = new RTCSessionDescription({
-          type: answer.type,
-          sdp: preferHighFidelityAudio(answer.sdp)
-        });
-        await peerConnection.setLocalDescription(highFidLocalAnswer);
-        
-        socket.emit("answer", { sdp: highFidLocalAnswer });
-      } catch (err) {
-        console.error("Error handling offer:", err);
+      
+      const authData = await res.json();
+      currentUser = authData.user;
+      
+      // Verify party existence and check room capacity (capping at 4 viewers)
+      const partyRes = await fetch(`/api/parties/${partyId}`);
+      if (!partyRes.ok) {
+        const errorData = await partyRes.json();
+        alert(errorData.error || "Room capacity validation failed.");
+        window.location.href = "/lobby.html";
+        return;
       }
-    });
 
-    socket.on("answer", async (data) => {
-      try {
-        if (peerConnection) {
-          // Modify remote description SDP to prefer high-fidelity audio
-          const highFidRemoteAnswer = new RTCSessionDescription({
-            type: data.sdp.type || "answer",
-            sdp: preferHighFidelityAudio(data.sdp.sdp || data.sdp)
-          });
-          await peerConnection.setRemoteDescription(highFidRemoteAnswer);
-          
-          // Process any remote ICE candidates that arrived before the remote answer was set
-          await processQueuedCandidates();
-        }
-      } catch (err) {
-        console.error("Error handling answer:", err);
+      const partyData = await partyRes.json();
+      partyDetails = partyData.party;
+
+      // Update room header details
+      partyRoomTitle.textContent = partyDetails.title;
+
+      // Render Host-specific controls
+      if (partyDetails.isHost) {
+        hostStartBtn.classList.remove("hidden");
+        qualitySelect.classList.remove("hidden");
+      } else {
+        // Viewers don't select quality directly because HLS matches host constraints
+        qualitySelect.innerHTML = `<option value="auto">Stream Quality (Auto)</option>`;
       }
-    });
 
-    socket.on("ice-candidate", async (data) => {
-      try {
-        if (data.candidate) {
-          if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            console.log("[WEBRTC] Successfully added remote ICE candidate");
-          } else {
-            console.log("[WEBRTC] Queueing remote ICE candidate until remote description is set");
-            remoteCandidatesQueue.push(data.candidate);
-          }
-        }
-      } catch (err) {
-        console.error("Error handling ice candidate:", err);
+      // Initialize Socket connection
+      setupWebSocket();
+
+      // Viewers: Start attempting HLS playback
+      if (!partyDetails.isHost) {
+        startHlsPlayback();
       }
+
+    } catch (err) {
+      console.error("[THEATER] Initialization error:", err);
+      alert("An error occurred during theater setup.");
+      window.location.href = "/lobby.html";
+    }
+  }
+
+  // 2. Anonymous Guest Login Form handler
+  guestLoginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = guestNameInput.value.trim();
+    if (!name) return;
+
+    try {
+      const res = await fetch("/api/auth/guest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, partyId })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Guest join failed.");
+      }
+
+      guestOverlay.classList.add("hidden");
+      initializeTheater(); // Retry normal initialization
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // 3. Socket.IO setups
+  function setupWebSocket() {
+    socket = io({
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      transports: ["websocket"]
     });
 
-    // Chat Message received
-    socket.on("chat:receive", (data) => {
+    socket.on("connect", () => {
+      console.log("[SOCKET] Websocket connected. Joining watch party...");
+      socket.emit("join-party", { partyId });
+    });
+
+    socket.on("user-joined", (data) => {
+      showToast(`${data.email} joined the theater`, "success");
+      activeViewerCount.textContent = `${data.count} participant${data.count > 1 ? "s" : ""}`;
+    });
+
+    socket.on("user-left", (data) => {
+      showToast(`${data.email} left the theater`, "warning");
+      activeViewerCount.textContent = `${data.count} participant${data.count > 1 ? "s" : ""}`;
+      
+      // Update participants list
+      removeMemberFromUI(data.userId);
+    });
+
+    socket.on("room-members", (list) => {
+      renderMembersList(list);
+      const count = list.length;
+      activeViewerCount.textContent = `${count} participant${count > 1 ? "s" : ""}`;
+    });
+
+    socket.on("chat-message", (data) => {
       appendChatMessage(data.email, data.text, data.timestamp);
     });
 
-    // Typing Indicators
-    socket.on("typing:start", (data) => {
-      typingUsername.textContent = data.email;
-      typingIndicator.classList.remove("hidden");
+    socket.on("room-full", (data) => {
+      alert(data.message);
+      window.location.href = "/lobby.html";
     });
 
-    socket.on("typing:stop", () => {
-      typingIndicator.classList.add("hidden");
-    });
-
-    // Screen Sharing notifications
-    socket.on("share:start", (data) => {
-      showToast(`${data.email} started screen sharing`, "info");
-      updatePeerPresence("Sharing Screen");
-      if (activeSharingMsg) activeSharingMsg.textContent = `${data.email} is sharing screen`;
-      if (activeSharingBox) activeSharingBox.classList.remove("hidden");
-    });
-
-    socket.on("share:stop", (data) => {
-      showToast(`${data.email} stopped screen sharing`, "warning");
-      updatePeerPresence("Online");
-      if (activeSharingBox) activeSharingBox.classList.add("hidden");
-      // Reset view
-      if (remoteVideo) remoteVideo.classList.add("hidden");
-      if (videoPlaceholder) videoPlaceholder.classList.remove("hidden");
-    });
-
-
-
-    // Presence updates
-    socket.on("user:online", (data) => {
-      peerEmail = data.email;
-      updatePeerPresence("Online");
-      if (!peerConnection) {
-        initPeerConnection();
-      }
-    });
-
-    socket.on("user:offline", (data) => {
-      if (peerEmail === data.email) {
-        updatePeerPresence("Offline");
-        closePeerConnection();
-      }
+    socket.on("error", (data) => {
+      console.error("[SOCKET] Socket error:", data);
+      showToast(data.message, "error");
     });
 
     socket.on("disconnect", () => {
-      roomStatusBadge.textContent = "Disconnected";
-      roomStatusBadge.className = "text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-medium";
-      webrtcStatusBadge.textContent = "P2P Off";
-      webrtcStatusBadge.className = "text-xs bg-neutral-855 text-neutral-400 px-2.5 py-1 rounded-full font-medium";
-      updatePeerPresence("Offline");
-      closePeerConnection();
-      socketCreated = false;
+      console.warn("[SOCKET] Websocket disconnected.");
+      roomStatusBadge.textContent = "Connecting";
+      roomStatusBadge.className = "text-xs bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded-full font-medium";
     });
 
-    // Guest Events on Guest Client
-    socket.on("host:accepted", (data) => {
-      document.getElementById("guest-overlay").classList.add("hidden");
-      currentUser.isGuestRequestPending = false;
-      currentUser.email = data.email;
-      navUsername.textContent = data.email;
-      showToast("Access request accepted!", "success");
-      
-      setupEventListeners();
-      socket.emit("user:online");
-      updatePresence("Online");
-    });
-
-    socket.on("host:rejected", () => {
-      showGuestStep("rejected");
-    });
-
-    socket.on("guest:request_error", (data) => {
-      showToast(data.message, "error");
-      showGuestStep("input");
-    });
-
-    // Guest Join Request on Host Client
-    socket.on("guest:join_request", (data) => {
-      currentGuestSocketId = data.guestSocketId;
-      document.getElementById("request-guest-name").textContent = data.name;
-      document.getElementById("host-request-modal").classList.remove("hidden");
+    // Notify connected status once user actually joins room
+    socket.on("user-joined", (data) => {
+      if (data.userId === currentUser.id) {
+        roomStatusBadge.textContent = "Connected";
+        roomStatusBadge.className = "text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full font-medium";
+      }
     });
   }
 
-  // Helper to optimize WebRTC video sender for low-bandwidth conditions
-  async function optimizeVideoSender(sender) {
-    if (!sender || !sender.track || sender.track.kind !== "video") return;
-    try {
-      const parameters = sender.getParameters();
-      if (!parameters.encodings) {
-        parameters.encodings = [{}];
-      }
-      // Restrict video bitrate to 350kbps (leaves enough overhead for audio and websocket traffic under a 500kbps limit)
-      parameters.encodings[0].maxBitrate = 350000;
-      // Downscale video resolution dynamically by 2.25 (e.g. 1080p -> 480p) to allow smooth 30fps playback at low bitrates
-      parameters.encodings[0].scaleResolutionDownBy = 2.25;
-      await sender.setParameters(parameters);
-      console.log("[WEBRTC] Optimized video sender parameters: maxBitrate=350kbps, scaleResolutionDownBy=1.5");
-    } catch (err) {
-      console.warn("[WEBRTC] Failed to set video sender parameters:", err);
-    }
-  }
-
-  // WebRTC Peer Connection Core Logic
-  function initPeerConnection() {
-    if (peerConnection) return;
-
-    peerConnection = new RTCPeerConnection(configuration);
-    updateWebRTCBadge("Connecting");
-
-    // ICE Candidates
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("ice-candidate", { candidate: event.candidate });
-      }
-    };
-
-    // Connection state checks
-    peerConnection.onconnectionstatechange = () => {
-      const state = peerConnection.connectionState;
-      updateWebRTCBadge(state);
-      
-      if (state === "connected") {
-        showToast("WebRTC P2P connection established", "success");
-      } else if (state === "failed" || state === "disconnected") {
-        showToast("Unable to establish direct connection.", "error");
-        updateWebRTCBadge("Failed");
-      }
-    };
-
-    // Tracks incoming
-    peerConnection.ontrack = (event) => {
-      const track = event.track;
-      console.log(`[WEBRTC] Incoming remote track: ${track.kind}, ID: ${track.id}`);
-      
-      if (track.kind === "video") {
-        const streams = event.streams;
-        if (streams && streams[0]) {
-          remoteVideo.srcObject = streams[0];
-          remoteVideo.muted = true; // Always mute the video tag to prevent double audio playback
-          remoteVideo.classList.remove("hidden");
-          videoPlaceholder.classList.add("hidden");
-          remoteVideo.play().catch(e => console.error("Error playing video:", e));
-        }
-      } else if (track.kind === "audio") {
-        // Spawn a dedicated, dynamic audio element for this specific track to avoid stream-overwriting conflicts
-        if (!remoteAudioElements.has(track.id)) {
-          console.log(`[WEBRTC] Spawning dynamic audio element for audio track ID: ${track.id}`);
-          const aud = document.createElement("audio");
-          aud.autoplay = true;
-          aud.muted = isMutedRemoteAudio;
-          
-          const newStream = new MediaStream([track]);
-          aud.srcObject = newStream;
-          document.body.appendChild(aud);
-          
-          remoteAudioElements.set(track.id, aud);
-          
-          aud.play().catch(e => console.warn(`[WEBRTC] Error playing dynamic audio track ${track.id}:`, e));
-        }
-      }
-    };
-
-
-
-    // If we have active screen share stream, attach it
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(async track => {
-        if (track.kind === "video") {
-          track.contentHint = "motion";
-        }
-        const sender = peerConnection.addTrack(track, localScreenStream);
-        screenSenders.push(sender);
-        
-        if (track.kind === "video") {
-          await optimizeVideoSender(sender);
-        }
-      });
-    }
-  }
-
-  function closePeerConnection() {
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
-    }
-    micSender = null;
-    screenSenders = [];
-    remoteVideo.srcObject = null;
-    remoteCandidatesQueue.length = 0; // Clear the ICE candidate queue
-    
-    // Clean up all dynamically created remote audio elements from DOM and clear map
-    for (const [trackId, aud] of remoteAudioElements.entries()) {
-      try {
-        console.log(`[WEBRTC] Cleaning up dynamic audio element for track ID: ${trackId}`);
-        aud.pause();
-        aud.srcObject = null;
-        aud.remove();
-      } catch (e) {
-        console.error(`Error cleaning up audio element for track ${trackId}:`, e);
-      }
-    }
-    remoteAudioElements.clear();
-    
-    remoteVideo.classList.add("hidden");
-    videoPlaceholder.classList.remove("hidden");
-    placeholderStatus.textContent = "Waiting for connection to establish...";
-    updateWebRTCBadge("Disconnected");
-  }
-
-  // Helper to rewrite SDP parameters to enforce lossless/high-fidelity stereo audio specifically for Opus
-  function preferHighFidelityAudio(sdp) {
-    let lines = sdp.split("\r\n");
-    let opusPayloadType = null;
-    
-    // Find the dynamic payload type number for the Opus codec
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes("a=rtpmap:") && lines[i].toLowerCase().includes("opus/48000/2")) {
-        const match = lines[i].match(/a=rtpmap:(\d+)\s+opus/i);
-        if (match) {
-          opusPayloadType = match[1];
-          break;
-        }
-      }
-    }
-    
-    if (!opusPayloadType) {
-      console.warn("[WEBRTC] Opus payload type not detected in SDP");
-      return sdp;
-    }
-    
-    // Apply stereo and high bitrate options only to the Opus fmtp line to avoid corrupting video track formats
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith(`a=fmtp:${opusPayloadType}`)) {
-        if (!lines[i].includes("stereo=1")) {
-          // Limit audio bitrate to 128kbps (still CD-quality stereo) to avoid saturating a 500kbps connection
-          lines[i] = lines[i] + ";stereo=1;sprop-stereo=1;maxaveragebitrate=128000;useinbandfec=1;maxplaybackrate=48000";
-          console.log("[WEBRTC] Successfully modified Opus SDP settings to optimized high-fidelity stereo (128kbps)");
-        }
-      }
-    }
-    return lines.join("\r\n");
-  }
-
-  // Helper to process queued remote ICE candidates after remoteDescription has been successfully set
-  async function processQueuedCandidates() {
-    if (!peerConnection || !peerConnection.remoteDescription) return;
-    console.log(`[WEBRTC] Processing ${remoteCandidatesQueue.length} queued remote ICE candidates`);
-    while (remoteCandidatesQueue.length > 0) {
-      const candidate = remoteCandidatesQueue.shift();
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log("[WEBRTC] Successfully added queued remote ICE candidate");
-      } catch (e) {
-        console.error("[WEBRTC] Error adding queued ICE candidate:", e);
-      }
-    }
-  }
-
-  // Trigger renegotiation on track changes
-  async function negotiate() {
-    if (!peerConnection) return;
-    try {
-      const offer = await peerConnection.createOffer();
-      const highFidOffer = new RTCSessionDescription({
-        type: offer.type,
-        sdp: preferHighFidelityAudio(offer.sdp)
-      });
-      await peerConnection.setLocalDescription(highFidOffer);
-      socket.emit("offer", { sdp: highFidOffer });
-    } catch (err) {
-      console.error("Error during negotiation offer creation:", err);
-    }
-  }
-
-  // Presence badges
-  function updatePresence(state) {
-    // Current user presence (could be emitted to server if we want, but local presence is updated)
-    // States: Online, Offline, Sharing Screen, Talking, Idle
-    if (socket) {
-      if (state === "Sharing Screen") {
-        socket.emit("share:start");
-      } else if (state === "Online") {
-        // If we transition out of sharing/talking
-        if (localScreenStream) {
-          socket.emit("share:start");
-        } else {
-          socket.emit("user:online");
-        }
-      }
-    }
-  }
-
-  function updatePeerPresence(state) {
-    peerPresenceState = state;
-    if (peerUsernameDisplay) {
-      peerUsernameDisplay.textContent = peerEmail ? `${peerEmail.split('@')[0]} (${state})` : "No Peer";
-    }
-    
-    // Status color configurations
-    let dotClass = "inline-block h-1.5 w-1.5 rounded-full ";
-    switch (state) {
-      case "Online":
-        dotClass += "bg-emerald-500 animate-pulse";
-        break;
-      case "Sharing Screen":
-        dotClass += "bg-amber-500 animate-pulse";
-        break;
-      case "Talking":
-        dotClass += "bg-sky-500 animate-pulse";
-        break;
-      case "Idle":
-        dotClass += "bg-neutral-500";
-        break;
-      case "Offline":
-      default:
-        dotClass += "bg-neutral-700";
-        if (peerUsernameDisplay) peerUsernameDisplay.textContent = "No Peer";
-        break;
-    }
-    if (peerPresenceDot) {
-      peerPresenceDot.className = dotClass;
-    }
-  }
-
-  function updateWebRTCBadge(state) {
-    let displayState = state.charAt(0).toUpperCase() + state.slice(1);
-    if (state === "connected") displayState = "P2P On";
-    if (state === "disconnected" || state === "failed") displayState = "P2P Off";
-    
-    if (webrtcStatusBadge) {
-      webrtcStatusBadge.textContent = displayState;
-      
-      let badgeClass = "text-xs px-2.5 py-1 rounded-full font-medium ";
-      if (state === "connected") {
-        badgeClass += "bg-emerald-500/10 text-emerald-400";
-      } else if (state === "connecting" || state === "checking") {
-        badgeClass += "bg-amber-500/10 text-amber-400";
-      } else if (state === "failed" || state === "disconnected") {
-        badgeClass += "bg-rose-500/10 text-rose-400";
+  // Helper: Gather all ICE candidates locally before sending offer (fixes WHIP negotiation delays)
+  async function gatherIceCandidates(pc) {
+    return new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") {
+        resolve();
       } else {
-        badgeClass += "bg-neutral-850 text-neutral-400";
-      }
-      
-      webrtcStatusBadge.className = badgeClass;
-    }
-  }
-
-  // Event Listeners setup
-  function setupEventListeners() {
-    // Logout
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", async () => {
-        await cleanupStreams();
-        try {
-          const response = await fetch("/api/auth/logout", { method: "POST" });
-          if (response.ok) window.location.href = "/login.html";
-        } catch (err) {
-          window.location.href = "/login.html";
-        }
-      });
-    }
-
-    // Screen Share Button
-    if (shareScreenBtn) shareScreenBtn.addEventListener("click", startScreenShare);
-    if (stopShareBtn) stopShareBtn.addEventListener("click", stopScreenShare);
-    
-    // Share Link Button
-    if (shareLinkBtn) {
-      shareLinkBtn.addEventListener("click", generateInviteLink);
-    }
-
-    // Mute Remote Audio
-    if (muteAudioBtn) {
-      muteAudioBtn.addEventListener("click", () => {
-        isMutedRemoteAudio = !isMutedRemoteAudio;
-        // Mute all active dynamic remote audio elements
-        for (const aud of remoteAudioElements.values()) {
-          aud.muted = isMutedRemoteAudio;
-        }
-        
-        const audioIconUnmuted = document.getElementById("audio-icon-unmuted");
-        const audioIconMuted = document.getElementById("audio-icon-muted");
-
-        if (isMutedRemoteAudio) {
-          if (audioIconUnmuted) audioIconUnmuted.classList.add("hidden");
-          if (audioIconMuted) audioIconMuted.classList.remove("hidden");
-          muteAudioBtn.classList.remove("bg-neutral-800", "text-neutral-300");
-          muteAudioBtn.classList.add("bg-rose-500/20", "text-rose-500", "border", "border-rose-500/30");
-          showToast("Theater muted", "warning");
-        } else {
-          if (audioIconUnmuted) audioIconUnmuted.classList.remove("hidden");
-          if (audioIconMuted) audioIconMuted.classList.add("hidden");
-          muteAudioBtn.classList.add("bg-neutral-800", "text-neutral-300");
-          muteAudioBtn.classList.remove("bg-rose-500/20", "text-rose-500", "border", "border-rose-500/30");
-          showToast("Theater unmuted", "info");
-        }
-      });
-    }
-
-    // Picture in picture (PiP)
-    if (pipBtn) {
-      pipBtn.addEventListener("click", async () => {
-        try {
-          if (remoteVideo && !remoteVideo.paused && remoteVideo.srcObject) {
-            if (document.pictureInPictureElement) {
-              await document.exitPictureInPicture();
-            } else if (remoteVideo.requestPictureInPicture) {
-              await remoteVideo.requestPictureInPicture();
-            }
-          } else {
-            showToast("No active video feed to run Picture-in-Picture", "warning");
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      });
-    }
-
-    // Fullscreen
-    if (fullscreenBtn) {
-      fullscreenBtn.addEventListener("click", () => {
-        if (document.fullscreenElement) {
-          document.exitFullscreen();
-        } else if (videoContainer) {
-          videoContainer.requestFullscreen().catch(e => {
-            showToast("Fullscreen request blocked", "error");
-          });
-        }
-      });
-    }
-
-    // Destroy Room (host only)
-    if (destroyRoomBtn) {
-      destroyRoomBtn.addEventListener("click", () => {
-        if (socket && currentUser && currentUser.role === "admin") {
-          if (confirm("Are you sure you want to destroy the room? All peers will be disconnected.")) {
-            socket.emit("room:destroy");
+        function checkState() {
+          if (pc.iceGatheringState === "complete") {
+            pc.removeEventListener("icegatheringstatechange", checkState);
+            resolve();
           }
         }
-      });
-    }
-
-
-
-    // Ephemeral Chat form
-    if (chatForm) {
-      chatForm.addEventListener("submit", sendChatMessage);
-    }
-    
-    // Chat Enter to submit, Shift+Enter for new line
-    if (chatInput) {
-      chatInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          sendChatMessage(e);
-        }
-      });
-
-      // Chat typing listeners
-      chatInput.addEventListener("input", handleChatTyping);
-    }
-
-    // Window before unload
-    window.addEventListener("beforeunload", () => {
-      if (socket) {
-        try {
-          socket.emit("user:offline");
-          socket.disconnect();
-        } catch (e) {
-          console.error(e);
-        }
+        pc.addEventListener("icegatheringstatechange", checkState);
       }
-      cleanupStreams();
     });
-
-    // Idle presence handler (if user does not move mouse or press keys for 5 mins, mark as Idle)
-    resetIdleTimer();
-    window.addEventListener("mousemove", resetIdleTimer);
-    window.addEventListener("keypress", resetIdleTimer);
   }
 
-  // Screen Sharing functions
-  async function startScreenShare() {
+  // 4. Host: Start WHIP Streaming directly from Chrome screen capture
+  async function startWhipIngest() {
     try {
-      // Capture screen with ideal 30fps target (no minimum constraint to avoid OverconstrainedError on static screens)
-      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+      const selectedQuality = qualitySelect.value;
+      const width = selectedQuality === "720p" ? 1280 : 1920;
+      const height = selectedQuality === "720p" ? 720 : 1080;
+
+      showToast("Requesting screen capture permission...", "info");
+      
+      // Capture Chrome screen stream
+      localStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: width },
+          height: { ideal: height },
           frameRate: { ideal: 30 }
         },
         audio: {
@@ -793,346 +226,280 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       });
 
-      // Enable motion-priority contentHint on the video track to prevent freezing/lagging during high-motion movie scenes
-      const videoTrack = localScreenStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.contentHint = "motion";
-      }
+      // Show mirror on Host screen
+      videoElement.srcObject = localStream;
+      videoElement.muted = true; // Avoid feedback loop
+      videoElement.classList.remove("hidden");
+      videoPlaceholder.classList.add("hidden");
 
-      // Render shared stream inside the main full-screen player area
-      if (remoteVideo) {
-        remoteVideo.srcObject = localScreenStream;
-        remoteVideo.muted = true; // Avoid local system/mic audio feedback loop
-        remoteVideo.classList.remove("hidden");
-      }
-      if (videoPlaceholder) {
-        videoPlaceholder.classList.add("hidden");
-      }
-      
-      // Hide preview thumbnail since it plays on the main player area
-      if (localVideo) localVideo.srcObject = null;
-      if (localPreviewContainer) localPreviewContainer.classList.add("hidden");
-      
-      // Update UI buttons
-      if (shareScreenBtn) shareScreenBtn.classList.add("hidden");
-      if (stopShareBtn) stopShareBtn.classList.remove("hidden");
-      
-      const meetStatus = document.getElementById("meet-status-text");
-      if (meetStatus) meetStatus.textContent = "Sharing screen";
+      // Initialize WebRTC WHIP Peer Connection
+      whipPeerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
 
-      showToast("Started screen sharing", "success");
-      updatePresence("Sharing Screen");
-
-      // Attach tracks to WebRTC
-      if (peerConnection) {
-        for (const track of localScreenStream.getTracks()) {
-          if (track.kind === "video") {
-            track.contentHint = "motion";
-          }
-          const sender = peerConnection.addTrack(track, localScreenStream);
-          screenSenders.push(sender);
-          
-          if (track.kind === "video") {
-            await optimizeVideoSender(sender);
-          }
+      // Bind track listeners to show mirror
+      localStream.getTracks().forEach(track => {
+        if (track.kind === "video") {
+          track.contentHint = "motion"; // Optimize screen updates specifically for videos/movies
         }
-        // renegotiate
-        await negotiate();
+        whipPeerConnection.addTrack(track, localStream);
+      });
+
+      // Host: Create SDP offer
+      const offer = await whipPeerConnection.createOffer();
+      await whipPeerConnection.setLocalDescription(offer);
+
+      // Wait for candidate gathering
+      placeholderStatus.textContent = "Negotiating connection with streaming server...";
+      await gatherIceCandidates(whipPeerConnection);
+
+      // Perform WHIP POST ingestion handshake to MediaMTX
+      const whipResponse = await fetch(partyDetails.whipUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: whipPeerConnection.localDescription.sdp
+      });
+
+      if (!whipResponse.ok) {
+        throw new Error("Streaming server WHIP handshake rejected.");
       }
 
-      // Detect user clicking "Stop Sharing" from browser toolbar natively
-      localScreenStream.getVideoTracks()[0].onended = () => {
-        stopScreenShare();
+      // Read remote description SDP answer from MediaMTX
+      const answerSdp = await whipResponse.text();
+      await whipPeerConnection.setRemoteDescription(new RTCSessionDescription({
+        type: "answer",
+        sdp: answerSdp
+      }));
+
+      showToast("Screen streaming published successfully!", "success");
+      
+      // Toggle button states
+      hostStartBtn.classList.add("hidden");
+      qualitySelect.classList.add("hidden");
+      hostStopBtn.classList.remove("hidden");
+
+      // Listen for stream stop from browser toolbar natively
+      localStream.getVideoTracks()[0].onended = () => {
+        stopWhipIngest();
       };
+
     } catch (err) {
-      console.warn("Screen share cancelled/failed:", err);
-      showToast("Screen share cancelled", "warning");
+      console.error("[WHIP] Ingest error:", err);
+      showToast(err.message || "Screen share cancelled or failed.", "error");
+      cleanupWhip();
     }
   }
 
-  async function stopScreenShare() {
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(track => track.stop());
-      localScreenStream = null;
+  // Host: Stop Streaming & Cleanup
+  async function stopWhipIngest() {
+    cleanupWhip();
+    showToast("Screen sharing stopped.", "warning");
+    hostStopBtn.classList.add("hidden");
+    hostStartBtn.classList.remove("hidden");
+    qualitySelect.classList.remove("hidden");
+  }
+
+  function cleanupWhip() {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+      localStream = null;
+    }
+    if (whipPeerConnection) {
+      whipPeerConnection.close();
+      whipPeerConnection = null;
+    }
+    videoElement.srcObject = null;
+    videoElement.classList.add("hidden");
+    videoPlaceholder.classList.remove("hidden");
+    placeholderStatus.textContent = "Waiting for the host to start sharing their screen...";
+  }
+
+  // 5. Viewers: Low-Latency HLS Playback using hls.js
+  function startHlsPlayback() {
+    if (hlsPlayer) {
+      hlsPlayer.destroy();
+      hlsPlayer = null;
     }
 
-    if (remoteVideo) {
-      remoteVideo.srcObject = null;
-      remoteVideo.muted = isMutedRemoteAudio; // Restore client mute setting
-      remoteVideo.classList.add("hidden");
-    }
-    if (videoPlaceholder) {
-      videoPlaceholder.classList.remove("hidden");
-    }
+    const streamSrc = partyDetails.hlsUrl;
+    console.log(`[HLS] Testing stream path: ${streamSrc}`);
 
-    if (shareScreenBtn) shareScreenBtn.classList.remove("hidden");
-    if (stopShareBtn) stopShareBtn.classList.add("hidden");
+    if (Hls.isSupported()) {
+      hlsPlayer = new Hls({
+        lowLatencyMode: true, // Enables low-latency buffering (2-4s)
+        backBufferLength: 5,
+        manifestLoadingMaxRetry: Infinity,
+        manifestLoadingRetryDelay: 2000
+      });
 
-    const meetStatus = document.getElementById("meet-status-text");
-    if (meetStatus) meetStatus.textContent = "P2P Theater active";
+      hlsPlayer.loadSource(streamSrc);
+      hlsPlayer.attachMedia(videoElement);
 
-    showToast("Stopped screen sharing", "warning");
-    
-    // Tell socket signaling
-    if (socket) {
-      socket.emit("share:stop");
-    }
-    updatePresence("Online");
+      hlsPlayer.on(Hls.Events.MANIFEST_LOADED, () => {
+        console.log("[HLS] Stream source is online!");
+        videoPlaceholder.classList.add("hidden");
+        videoElement.classList.remove("hidden");
+        videoElement.play().catch(e => console.warn("Autoplay blocked:", e));
+      });
 
-    // Remove tracks from WebRTC peer connection
-    if (peerConnection && screenSenders.length > 0) {
-      screenSenders.forEach(sender => {
-        try {
-          peerConnection.removeTrack(sender);
-        } catch (e) {
-          console.error(e);
+      // Handle manifest loading errors (e.g. host hasn't started streaming yet)
+      hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+          videoElement.classList.add("hidden");
+          videoPlaceholder.classList.remove("hidden");
+          placeholderStatus.textContent = "Theater is offline. Waiting for stream to go live...";
         }
       });
-      screenSenders = [];
-      await negotiate();
+
+    } else if (videoElement.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS support (Safari)
+      videoElement.src = streamSrc;
+      videoElement.addEventListener("loadedmetadata", () => {
+        videoPlaceholder.classList.add("hidden");
+        videoElement.classList.remove("hidden");
+        videoElement.play();
+      });
     }
   }
 
+  // 6. Action Button Event Listeners
+  if (hostStartBtn) hostStartBtn.addEventListener("click", startWhipIngest);
+  if (hostStopBtn) hostStopBtn.addEventListener("click", stopWhipIngest);
 
+  // Copy Invite Link
+  shareLinkBtn.addEventListener("click", () => {
+    // Generate anonymous invite link incorporating the party ID
+    const inviteLink = `${window.location.origin}/app.html?party=${partyDetails.id}`;
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      showToast("Invite link copied to clipboard!", "success");
+    }).catch(err => {
+      console.error("Failed to copy link:", err);
+    });
+  });
 
-  // Ephemeral Chat messages
-  function sendChatMessage(e) {
+  // Mute/Unmute Audio
+  muteBtn.addEventListener("click", () => {
+    isMuted = !isMuted;
+    videoElement.muted = isMuted;
+
+    if (isMuted) {
+      volumeUpIcon.classList.add("hidden");
+      volumeMuteIcon.classList.remove("hidden");
+      showToast("Theater audio muted", "warning");
+    } else {
+      volumeMuteIcon.classList.add("hidden");
+      volumeUpIcon.classList.remove("hidden");
+      showToast("Theater audio unmuted", "success");
+    }
+  });
+
+  // Fullscreen toggle
+  fullscreenBtn.addEventListener("click", () => {
+    const container = document.getElementById("video-container");
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().catch(err => {
+        showToast("Fullscreen request blocked.", "error");
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  // 7. Live Ephemeral Chat Submission
+  chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();
-    if (!text) return;
+    if (!text || !socket) return;
 
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // Display locally
-    appendChatMessage("You", text, timestamp);
-    
-    // Broadcast via socket
-    if (socket) {
-      socket.emit("chat:send", { text });
-      socket.emit("typing:stop");
-    }
-
+    socket.emit("chat-message", { text });
     chatInput.value = "";
-    isTyping = false;
+  });
+
+  // Enter triggers chat submit, Shift+Enter yields new line
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      chatForm.dispatchEvent(new Event("submit"));
+    }
+  });
+
+  // 8. UI Rendering Helper Functions
+  function renderMembersList(list) {
+    membersList.innerHTML = list.map(member => `
+      <span class="inline-flex items-center rounded-full bg-neutral-800 px-3 py-1 text-xs font-semibold text-neutral-300 border border-neutral-700/60 select-none">
+        <span class="mr-1.5 h-1.5 w-1.5 rounded-full ${member.isHost ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}"></span>
+        ${escapeHtml(member.email.split("@")[0])} ${member.isHost ? '(Host)' : ''}
+      </span>
+    `).join("");
+  }
+
+  function removeMemberFromUI(userId) {
+    // Re-request members list via socket or allow Socket.IO status updates to repaint
   }
 
   function appendChatMessage(sender, text, timestamp) {
-    const isSelf = sender === "You";
-    const initial = sender.charAt(0).toUpperCase();
-    
-    // Set matching colors for the user avatars
-    const avatarBg = isSelf ? "bg-rose-500 text-white" : "bg-sky-500 text-neutral-950";
-    
-    const msgDiv = document.createElement("div");
-    msgDiv.className = "flex items-start space-x-3 py-3 border-b border-neutral-800/40 last:border-0";
-    
-    msgDiv.innerHTML = `
-      <div class="h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${avatarBg} select-none">
-        ${initial}
-      </div>
-      <div class="flex-grow min-w-0">
-        <div class="flex items-baseline justify-between mb-1 select-none">
-          <span class="font-semibold text-xs ${isSelf ? 'text-rose-400' : 'text-sky-400'}">${escapeHTML(sender)}</span>
-          <span class="text-[10px] text-neutral-500">${timestamp}</span>
+    const cleanSender = sender.split("@")[0];
+    const isMe = sender === currentUser.email;
+
+    const msgHtml = `
+      <div class="flex flex-col ${isMe ? 'items-end' : 'items-start'}">
+        <div class="flex items-baseline space-x-2">
+          <span class="text-xs font-bold text-neutral-400">${escapeHtml(cleanSender)}</span>
+          <span class="text-[9px] text-neutral-600">${timestamp}</span>
         </div>
-        <p class="text-sm select-text text-neutral-200 leading-relaxed">${escapeHTML(text).replace(/\n/g, "<br>")}</p>
+        <div class="mt-1 max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-normal text-white ${
+          isMe 
+            ? 'bg-gradient-to-r from-rose-500 to-rose-600 rounded-tr-none' 
+            : 'bg-neutral-850 border border-neutral-800 rounded-tl-none'
+        }">
+          ${escapeHtml(text)}
+        </div>
       </div>
     `;
 
-    chatMessages.appendChild(msgDiv);
-    
-    // Auto Scroll to bottom (support delayed scroll for layout calculations)
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    setTimeout(() => {
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-    }, 50);
+    chatMessages.insertAdjacentHTML("beforeend", msgHtml);
+    chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom
   }
 
-  function handleChatTyping() {
-    if (!isTyping && socket) {
-      isTyping = true;
-      socket.emit("typing:start");
-    }
-
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => {
-      if (isTyping && socket) {
-        isTyping = false;
-        socket.emit("typing:stop");
-      }
-    }, 2000);
-  }
-
-  // Toast System
-  function showToast(message, type = "info") {
+  // Reusable dynamic toast message alert
+  function showToast(msg, type = "info") {
     const toast = document.createElement("div");
-    // Styling categories
-    let borderBgClass = "";
-    switch (type) {
-      case "success":
-        borderBgClass = "bg-emerald-950/90 border border-emerald-500/30 text-emerald-400";
-        break;
-      case "warning":
-        borderBgClass = "bg-amber-950/90 border border-amber-500/30 text-amber-400";
-        break;
-      case "error":
-        borderBgClass = "bg-rose-950/90 border border-rose-500/30 text-rose-400";
-        break;
-      case "info":
-      default:
-        borderBgClass = "bg-neutral-900/90 border border-neutral-700/60 text-neutral-200";
-        break;
+    toast.className = `fixed bottom-4 left-4 z-50 rounded-2xl border px-4 py-3 text-xs font-bold shadow-xl transition transform translate-y-2 opacity-0 duration-300 `;
+    
+    if (type === "success") {
+      toast.className += "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+    } else if (type === "warning") {
+      toast.className += "bg-amber-500/10 text-amber-400 border-amber-500/20";
+    } else if (type === "error") {
+      toast.className += "bg-rose-500/10 text-rose-400 border-rose-500/20";
+    } else {
+      toast.className += "bg-neutral-900 border-neutral-800 text-neutral-300";
     }
 
-    toast.className = `p-4 rounded-2xl shadow-xl backdrop-blur-md transition-all duration-300 pointer-events-auto flex items-center justify-between space-x-3 translate-y-4 opacity-0 ${borderBgClass}`;
-    toast.innerHTML = `
-      <span class="text-xs font-semibold leading-relaxed">${escapeHTML(message)}</span>
-      <button class="text-neutral-500 hover:text-neutral-300 text-xs focus:outline-none select-none">✕</button>
-    `;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
 
-    toastContainer.appendChild(toast);
-
-    // Animate in
+    // Fade-in animation
     setTimeout(() => {
-      toast.classList.remove("translate-y-4", "opacity-0");
+      toast.classList.remove("translate-y-2", "opacity-0");
     }, 10);
 
-    // Dismiss click
-    toast.querySelector("button").addEventListener("click", () => {
-      dismissToast(toast);
-    });
-
-    // Self destroy after 4s
+    // Auto cleanup
     setTimeout(() => {
-      dismissToast(toast);
-    }, 4000);
-  }
-
-  function dismissToast(toast) {
-    if (toast.parentNode) {
-      toast.classList.add("opacity-0", "translate-y-2");
+      toast.classList.add("translate-y-2", "opacity-0");
       setTimeout(() => {
-        if (toast.parentNode) {
-          toastContainer.removeChild(toast);
-        }
+        toast.remove();
       }, 300);
-    }
+    }, 3000);
   }
 
-  // Idle timer logic
-  function resetIdleTimer() {
-    if (peerPresenceState === "Idle") {
-      updatePresence("Online");
-    }
-    
-    clearTimeout(idleTimeout);
-    idleTimeout = setTimeout(() => {
-      if (socket && !localScreenStream) {
-        socket.emit("user:offline"); // signals idle state
-        updatePeerPresence("Idle"); // Local update
-      }
-    }, 5 * 60 * 1000); // 5 minutes
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/[&<>'"]/g, 
+      tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+    );
   }
 
-  // Cleanup helper
-  async function cleanupStreams() {
-    await stopScreenShare();
-  }
-
-  // Generate Invite Link and Copy to Clipboard
-  async function generateInviteLink() {
-    shareLinkBtn.disabled = true;
-    shareLinkBtn.classList.add("opacity-50");
-
-    try {
-      const response = await fetch("/api/auth/invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-
-      if (!response.ok) throw new Error("Failed to create invite link");
-      const data = await response.json();
-
-      await navigator.clipboard.writeText(data.inviteLink);
-      showToast("Invite link copied to clipboard!", "success");
-    } catch (err) {
-      console.error(err);
-      showToast("Could not generate invite link", "error");
-    } finally {
-      shareLinkBtn.disabled = false;
-      shareLinkBtn.classList.remove("opacity-50");
-    }
-  }
-
-  // Escape HTML utility
-  function escapeHTML(str) {
-    return str.replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#039;");
-  }
-
-  // Guest UI State Control
-  function showGuestStep(step) {
-    document.getElementById("guest-step-input").classList.add("hidden");
-    document.getElementById("guest-step-waiting").classList.add("hidden");
-    document.getElementById("guest-step-rejected").classList.add("hidden");
-
-    if (step === "input") {
-      document.getElementById("guest-step-input").classList.remove("hidden");
-    } else if (step === "waiting") {
-      document.getElementById("guest-step-waiting").classList.remove("hidden");
-    } else if (step === "rejected") {
-      document.getElementById("guest-step-rejected").classList.remove("hidden");
-    }
-  }
-
-  // Bind Guest overlay events
-  const guestJoinForm = document.getElementById("guest-join-form");
-  const guestNameInput = document.getElementById("guest-name-input");
-  const guestRetryBtn = document.getElementById("guest-retry-btn");
-
-  if (guestJoinForm) {
-    guestJoinForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = guestNameInput.value.trim();
-      if (!name) return;
-
-      showGuestStep("waiting");
-      if (socket) {
-        socket.emit("guest:request_join", { name });
-      }
-    });
-  }
-
-  if (guestRetryBtn) {
-    guestRetryBtn.addEventListener("click", () => {
-      showGuestStep("input");
-    });
-  }
-
-  // Host Approval Modal Event Handlers
-  const hostRequestModal = document.getElementById("host-request-modal");
-  const hostAcceptBtn = document.getElementById("host-accept-btn");
-  const hostRejectBtn = document.getElementById("host-reject-btn");
-  let currentGuestSocketId = null;
-
-  if (hostAcceptBtn && hostRejectBtn) {
-    hostAcceptBtn.addEventListener("click", () => {
-      if (socket && currentGuestSocketId) {
-        socket.emit("host:accept_guest", { guestSocketId: currentGuestSocketId });
-      }
-      hostRequestModal.classList.add("hidden");
-      currentGuestSocketId = null;
-    });
-
-    hostRejectBtn.addEventListener("click", () => {
-      if (socket && currentGuestSocketId) {
-        socket.emit("host:reject_guest", { guestSocketId: currentGuestSocketId });
-      }
-      hostRequestModal.classList.add("hidden");
-      currentGuestSocketId = null;
-    });
-  }
+  // Trigger initial checks
+  initializeTheater();
 });
