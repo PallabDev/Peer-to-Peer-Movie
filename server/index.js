@@ -50,7 +50,7 @@ app.use(
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        connectSrc: ["'self'", "ws:", "wss:", "https://fonts.googleapis.com"],
+        connectSrc: ["'self'", "ws:", "wss:", "stun:", "turn:", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "blob:"],
         mediaSrc: ["'self'", "blob:", "mediastream:"]
       }

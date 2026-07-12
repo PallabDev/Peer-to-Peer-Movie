@@ -73,6 +73,52 @@ export function setupSignaling(io) {
 
     const { userId, email, role } = session;
 
+    // Register disconnect handler immediately for all sockets (including guest sockets)
+    socket.on("disconnect", () => {
+      console.log(`[SIGNALLING] socket disconnect event triggered for: ${socket.id}. Still in map: ${connectedUsers.has(socket.id)}`);
+      if (connectedUsers.has(socket.id)) {
+        const userInfo = connectedUsers.get(socket.id);
+        logger.peerDisconnected(userInfo.email, socket.id);
+        connectedUsers.delete(socket.id);
+        
+        // Notify other peer that this user left
+        console.log(`[SIGNALLING] Emitting peer:left for ${userInfo.email}`);
+        socket.to(ROOM_NAME).emit("peer:left", { email: userInfo.email });
+
+        // If host left, destroy the room for remaining peers
+        if (userInfo.role === "admin") {
+          // Check if there are any other admin sockets still connected
+          let otherAdminExists = false;
+          for (const [sid, info] of connectedUsers.entries()) {
+            if (sid !== socket.id && info.role === "admin") {
+              otherAdminExists = true;
+              break;
+            }
+          }
+
+          console.log(`[SIGNALLING] Host left. Other active admin sockets exists: ${otherAdminExists}`);
+          if (!otherAdminExists) {
+            const room = io.sockets.adapter.rooms.get(ROOM_NAME);
+            if (room) {
+              console.log(`[SIGNALLING] Loop and destroy room for remaining ${room.size} clients`);
+              for (const sid of room) {
+                const peerSocket = io.sockets.sockets.get(sid);
+                if (peerSocket) {
+                  console.log(`[SIGNALLING] Sending room:destroyed to: ${sid}`);
+                  peerSocket.emit("room:destroyed", { message: "Host left. Room has been destroyed." });
+                  connectedUsers.delete(sid);
+                  peerSocket.leave(ROOM_NAME);
+                }
+              }
+            }
+            logger.info(`Room destroyed: host ${userInfo.email} disconnected`);
+          } else {
+            logger.info(`Host socket disconnected, but another host socket is still active for ${userInfo.email}. Room preserved.`);
+          }
+        }
+      }
+    });
+
     // Verify user still exists and has access in the DB (only for non-guest users)
     try {
       if (session.isGuest === true) {
@@ -280,50 +326,5 @@ export function setupSignaling(io) {
 
     // Register signaling listeners for authenticated users
     registerSignalingListeners(socket, email, role);
-
-    // Disconnection Handler
-    socket.on("disconnect", () => {
-      console.log(`[SIGNALLING] socket disconnect event triggered for: ${socket.id}. Still in map: ${connectedUsers.has(socket.id)}`);
-      if (connectedUsers.has(socket.id)) {
-        logger.peerDisconnected(email, socket.id);
-        connectedUsers.delete(socket.id);
-        
-        // Notify other peer that this user left
-        console.log(`[SIGNALLING] Emitting peer:left for ${email}`);
-        socket.to(ROOM_NAME).emit("peer:left", { email });
-
-        // If host left, destroy the room for remaining peers
-        if (role === "admin") {
-          // Check if there are any other admin sockets still connected
-          let otherAdminExists = false;
-          for (const [sid, info] of connectedUsers.entries()) {
-            if (sid !== socket.id && info.role === "admin") {
-              otherAdminExists = true;
-              break;
-            }
-          }
-
-          console.log(`[SIGNALLING] Host left. Other active admin sockets exists: ${otherAdminExists}`);
-          if (!otherAdminExists) {
-            const room = io.sockets.adapter.rooms.get(ROOM_NAME);
-            if (room) {
-              console.log(`[SIGNALLING] Loop and destroy room for remaining ${room.size} clients`);
-              for (const sid of room) {
-                const peerSocket = io.sockets.sockets.get(sid);
-                if (peerSocket) {
-                  console.log(`[SIGNALLING] Sending room:destroyed to: ${sid}`);
-                  peerSocket.emit("room:destroyed", { message: "Host left. Room has been destroyed." });
-                  connectedUsers.delete(sid);
-                  peerSocket.leave(ROOM_NAME);
-                }
-              }
-            }
-            logger.info(`Room destroyed: host ${email} disconnected`);
-          } else {
-            logger.info(`Host socket disconnected, but another host socket is still active for ${email}. Room preserved.`);
-          }
-        }
-      }
-    });
   });
 }
