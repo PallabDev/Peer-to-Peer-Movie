@@ -778,12 +778,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Screen Sharing functions
   async function startScreenShare() {
     try {
-      // Capture screen at a guaranteed minimum of 30fps
+      // Capture screen with ideal 30fps target (no minimum constraint to avoid OverconstrainedError on static screens)
       localScreenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          frameRate: { min: 30, ideal: 30 }
+          frameRate: { ideal: 30 }
         },
         audio: {
           echoCancellation: false,
