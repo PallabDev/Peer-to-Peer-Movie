@@ -238,6 +238,13 @@
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
       });
 
+      whipPeerConnection.onconnectionstatechange = () => {
+        console.log(`[WEBRTC] Connection state: ${whipPeerConnection.connectionState}`);
+      };
+      whipPeerConnection.oniceconnectionstatechange = () => {
+        console.log(`[WEBRTC] ICE connection state: ${whipPeerConnection.iceConnectionState}`);
+      };
+
       // Bind track listeners to show mirror
       localStream.getTracks().forEach(track => {
         if (track.kind === "video") {
